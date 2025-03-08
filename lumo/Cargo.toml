@@ -1,0 +1,56 @@
+[package]
+name = "lumo"
+version.workspace = true
+edition.workspace = true
+description = "Agentic Library with native tools and MCP support"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[dependencies]
+htmd.workspace = true
+reqwest.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+log.workspace = true
+colored.workspace = true
+scraper.workspace = true
+terminal_size.workspace = true
+schemars.workspace = true
+chrono.workspace = true
+rustpython-parser = {workspace= true, optional = true }
+pyo3 = { workspace = true, optional = true }
+regex.workspace = true
+async-trait.workspace = true
+futures.workspace = true
+nanoid.workspace = true
+
+# mcp
+mcp-client = {git = "https://github.com/modelcontextprotocol/rust-sdk", optional = true}
+mcp-core = {git = "https://github.com/modelcontextprotocol/rust-sdk", optional = true}
+tower = { workspace = true, features = ["timeout", "util"] , optional = true}
+tokio = {workspace = true, features = ["rt-multi-thread", "macros"], optional=true}
+async-stream = {workspace =true, optional = true}
+
+[dev-dependencies]
+clap = { version = "4.5.1", features = ["derive"] }
+textwrap = "0.16.0"
+tokio = {workspace = true, features = ["rt-multi-thread", "macros", "full"]}
+
+[features]
+default = []
+cli = ["dep:clap"]
+mcp = ["dep:mcp-client", "dep:mcp-core", "dep:tower" ]
+code-agent = ["dep:rustpython-parser", "dep:pyo3", "dep:tokio"]
+stream = ["dep:async-stream"]
+all = ["cli", "code-agent", "mcp", "stream"]
+
+[dependencies.clap]
+version = "4.5.1"
+features = ["derive"]
+optional = true
+
+[package.metadata.docs.rs]
+all-features = true
+rustdoc-args = ["--cfg", "docsrs"]

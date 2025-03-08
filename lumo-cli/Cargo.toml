@@ -1,0 +1,30 @@
+[package]
+name = "lumo-cli"
+version.workspace = true
+edition.workspace = true
+description = "The CLI for running Lumo Agent"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "lumo"
+path = "src/main.rs"
+
+[dependencies]
+clap.workspace = true
+anyhow.workspace = true
+lumo = {path = "../lumo", features = ["all"]}
+mcp-core.workspace = true
+mcp-client.workspace = true
+async-trait.workspace = true
+tower.workspace = true
+colored.workspace = true
+tokio.workspace = true
+serde_json.workspace = true
+serde.workspace = true
+serde_yaml.workspace = true
+directories.workspace = true
+futures.workspace = true
+bat.workspace = true
+rustyline.workspace = true
