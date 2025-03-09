@@ -18,6 +18,7 @@ pub trait Model: Send + Sync + 'static {
     async fn run(
         &self,
         input_messages: Vec<Message>,
+        history: Option<Vec<Message>>,
         tools: Vec<ToolInfo>,
         max_tokens: Option<usize>,
         args: Option<HashMap<String, Vec<String>>>,

@@ -5,8 +5,8 @@ use mcp_client::{
     ClientCapabilities, ClientInfo, Error as ClientError, McpClient, McpClientTrait, McpService,
     StdioTransport, Transport,
 };
-use lumo::agent::Agent;
-use lumo::models::openai::OpenAIServerModel;
+use lumo::agent::{Agent, McpAgentBuilder};
+use lumo::models::openai::OpenAIServerModelBuilder;
 use std::time::Duration;
 
 use lumo::agent::mcp_agent::McpAgent;
@@ -46,24 +46,16 @@ async fn main() -> Result<(), ClientError> {
         )
         .await?;
 
-    let model = OpenAIServerModel::new(
-        Some("https://api.openai.com/v1/chat/completions"),
-        Some("gpt-4o-mini"),
-        None,
-        None,
-    );
+    let model = OpenAIServerModelBuilder::new("gpt-4o-mini")
+        .with_base_url(Some("https://api.openai.com/v1/chat/completions".to_string()))
+        .build()
+        .unwrap();
 
-    let mut agent = McpAgent::new(
-        model,
-        Some(TOOL_CALLING_SYSTEM_PROMPT),
-        None,
-        None,
-        None,
-        vec![client],
-        None,
-    )
-    .await
-    .unwrap();
+    let mut agent = McpAgentBuilder::new(model)
+        .with_system_prompt(Some(TOOL_CALLING_SYSTEM_PROMPT))
+        .with_mcp_clients(vec![client])
+        .build()
+        .await.unwrap();
     // Use agent here
     let _result = agent.run("List the directories in the current directory!", false).await.unwrap();
 

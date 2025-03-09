@@ -2,12 +2,16 @@ use anyhow::Result;
 use async_trait::async_trait;
 use clap::{Parser, ValueEnum};
 use futures::{Stream, StreamExt};
+use lumo::agent::{
+    AgentStream, CodeAgent, CodeAgentBuilder, FunctionCallingAgent, FunctionCallingAgentBuilder,
+    McpAgentBuilder,
+};
 use lumo::agent::{McpAgent, Step};
-use lumo::agent::{AgentStream, CodeAgent, FunctionCallingAgent};
 use lumo::errors::AgentError;
+use lumo::models::gemini::{GeminiServerModel, GeminiServerModelBuilder};
 use lumo::models::model_traits::{Model, ModelResponse};
 use lumo::models::ollama::{OllamaModel, OllamaModelBuilder};
-use lumo::models::openai::OpenAIServerModel;
+use lumo::models::openai::{OpenAIServerModel, OpenAIServerModelBuilder};
 use lumo::models::types::Message;
 use lumo::tools::{
     AsyncTool, DuckDuckGoSearchTool, GoogleSearchTool, PythonInterpreterTool, ToolInfo,
@@ -49,12 +53,14 @@ enum ToolType {
 enum ModelType {
     OpenAI,
     Ollama,
+    Gemini,
 }
 
 #[derive(Debug)]
 enum ModelWrapper {
     OpenAI(OpenAIServerModel),
     Ollama(OllamaModel),
+    Gemini(GeminiServerModel),
 }
 
 enum AgentWrapper<
@@ -95,13 +101,21 @@ impl Model for ModelWrapper {
     async fn run(
         &self,
         messages: Vec<Message>,
+        history: Option<Vec<Message>>,
         tools: Vec<ToolInfo>,
         max_tokens: Option<usize>,
         args: Option<HashMap<String, Vec<String>>>,
     ) -> Result<Box<dyn ModelResponse>, AgentError> {
         match self {
-            ModelWrapper::OpenAI(m) => Ok(m.run(messages, tools, max_tokens, args).await?),
-            ModelWrapper::Ollama(m) => Ok(m.run(messages, tools, max_tokens, args).await?),
+            ModelWrapper::OpenAI(m) => {
+                Ok(m.run(messages, history, tools, max_tokens, args).await?)
+            }
+            ModelWrapper::Ollama(m) => {
+                Ok(m.run(messages, history, tools, max_tokens, args).await?)
+            }
+            ModelWrapper::Gemini(m) => {
+                Ok(m.run(messages, history, tools, max_tokens, args).await?)
+            }
         }
     }
 }
@@ -118,7 +132,7 @@ struct Args {
     tools: Vec<ToolType>,
 
     /// The type of model to use
-    #[arg(short = 'm', long, value_enum, default_value = "open-ai")]
+    #[arg(short = 'm', long, value_enum, default_value = "gemini")]
     model_type: ModelType,
 
     /// OpenAI API key (only required for OpenAI model)
@@ -126,7 +140,7 @@ struct Args {
     api_key: Option<String>,
 
     /// Model ID (e.g., "gpt-4" for OpenAI or "qwen2.5" for Ollama)
-    #[arg(long, default_value = "gpt-4o-mini")]
+    #[arg(long, default_value = "gemini-2.0-flash")]
     model_id: String,
 
     /// Base URL for the API
@@ -167,12 +181,18 @@ async fn main() -> Result<()> {
 
     // Create model based on type
     let model = match args.model_type {
-        ModelType::OpenAI => ModelWrapper::OpenAI(OpenAIServerModel::new(
-            args.base_url.as_deref(),
-            Some(&args.model_id),
-            None,
-            args.api_key,
-        )),
+        ModelType::OpenAI => ModelWrapper::OpenAI(
+            OpenAIServerModelBuilder::new(&args.model_id)
+                .with_base_url(args.base_url.clone())
+                .with_api_key(args.api_key.clone())
+                .build()?,
+        ),
+        ModelType::Gemini => ModelWrapper::Gemini(
+            GeminiServerModelBuilder::new(&args.model_id)
+                .with_base_url(args.base_url.clone())
+                .with_api_key(args.api_key.clone())
+                .build()?,
+        ),
         ModelType::Ollama => ModelWrapper::Ollama(
             OllamaModelBuilder::new()
                 .model_id(&args.model_id)
@@ -192,27 +212,25 @@ async fn main() -> Result<()> {
         ModelType::Ollama => {
             Some("You are a helpful assistant that can answer questions and help with tasks. Take multiple steps if needed until you have completed the task.")
         }
-        ModelType::OpenAI => None,
+        _=> None,
     };
     let mut agent = match args.agent_type {
-        AgentType::FunctionCalling => AgentWrapper::FunctionCalling(FunctionCallingAgent::new(
-            model,
-            tools,
-            system_prompt,
-            None,
-            Some("CLI Agent"),
-            args.max_steps,
-            args.planning_interval,
-        )?),
-        AgentType::Code => AgentWrapper::Code(CodeAgent::new(
-            model,
-            tools,
-            None,
-            None,
-            Some("CLI Agent"),
-            args.max_steps,
-            args.planning_interval,
-        )?),
+        AgentType::FunctionCalling => AgentWrapper::FunctionCalling(
+            FunctionCallingAgentBuilder::new(model)
+                .with_tools(tools)
+                .with_system_prompt(system_prompt)
+                .with_max_steps(args.max_steps)
+                .with_planning_interval(args.planning_interval)
+                .build()?,
+        ),
+        AgentType::Code => AgentWrapper::Code(
+            CodeAgentBuilder::new(model)
+                .with_tools(tools)
+                .with_system_prompt(system_prompt)
+                .with_max_steps(args.max_steps)
+                .with_planning_interval(args.planning_interval)
+                .build()?,
+        ),
         AgentType::Mcp => {
             // Initialize all configured servers
             let mut clients = Vec::new();
@@ -247,7 +265,13 @@ async fn main() -> Result<()> {
 
             // Create MCP agent with all initialized clients
             AgentWrapper::Mcp(
-                McpAgent::new(model, None, None, None, args.max_steps, clients, args.planning_interval).await?,
+                McpAgentBuilder::new(model)
+                    .with_system_prompt(system_prompt)
+                    .with_max_steps(args.max_steps)
+                    .with_planning_interval(args.planning_interval)
+                    .with_mcp_clients(clients)
+                    .build()
+                    .await?,
             )
         }
     };
@@ -272,8 +296,7 @@ async fn main() -> Result<()> {
             if let Ok(step) = step {
                 serde_json::to_writer_pretty(&mut file, &step)?;
                 CliPrinter::print_step(&step)?;
-            }
-            else {
+            } else {
                 println!("Error: {:?}", step);
             }
         }

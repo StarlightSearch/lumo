@@ -1,6 +1,6 @@
 use futures::StreamExt;
-use lumo::agent::{AgentStream, FunctionCallingAgent, Step};
-use lumo::models::openai::OpenAIServerModel;
+use lumo::agent::{AgentStream, FunctionCallingAgentBuilder, Step};
+use lumo::models::openai::OpenAIServerModelBuilder;
 use lumo::tools::{AsyncTool, DuckDuckGoSearchTool, VisitWebsiteTool};
 
 #[tokio::main]
@@ -9,15 +9,16 @@ async fn main() {
         Box::new(DuckDuckGoSearchTool::new()),
         Box::new(VisitWebsiteTool::new()),
     ];
-    let model = OpenAIServerModel::new(
-        Some("https://api.openai.com/v1/chat/completions"),
-        Some("gpt-4o-mini"),
-        None,
-        None,
-    );
+    let model = OpenAIServerModelBuilder::new("gpt-4o-mini")
+        .with_base_url(Some("https://api.openai.com/v1/chat/completions".to_string()))
+        .build()
+        .unwrap();
 
-    let mut agent =
-        FunctionCallingAgent::new(model, tools, None, None, None, None, Some(4)).unwrap();
+    let mut agent = FunctionCallingAgentBuilder::new(model)
+        .with_tools(tools)
+        .with_max_steps(Some(4))
+        .build()
+        .unwrap();
     // let _result = agent.run("What are the best restaurants in Eindhoven?", true).await.unwrap();
     let mut result = agent.stream_run("What are the best restaurants in Eindhoven?", true).unwrap();
 

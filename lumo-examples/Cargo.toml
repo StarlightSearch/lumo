@@ -11,7 +11,7 @@ repository = "https://github.com/akshayballal95/smolagents-rs"
 [dependencies]
 clap.workspace = true
 anyhow.workspace = true
-lumo = {path = "../lumo", features = ["all"]}
+lumo = {workspace = true, features = ["all"]}
 mcp-core.workspace = true
 mcp-client.workspace = true
 async-trait.workspace = true
@@ -24,3 +24,4 @@ serde_yaml = "0.9"
 directories = "6.0.0"
 futures.workspace = true
 bat.workspace = true
+log.workspace = true

@@ -14,7 +14,7 @@ path = "src/main.rs"
 [dependencies]
 clap.workspace = true
 anyhow.workspace = true
-lumo = {path = "../lumo", features = ["all"]}
+lumo = {workspace = true, features = ["all"]}
 mcp-core.workspace = true
 mcp-client.workspace = true
 async-trait.workspace = true

@@ -9,7 +9,7 @@ use crate::{
     errors::{AgentError, AgentExecutionError},
     models::{
         model_traits::Model,
-        openai::{FunctionCall, ToolCall},
+        openai::{FunctionCall, ToolCall}, types::Message,
     },
     prompts::TOOL_CALLING_SYSTEM_PROMPT,
     tools::{AsyncTool, ToolGroup},
@@ -36,6 +36,8 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> FunctionCallingAgent<M>
         description: Option<&str>,
         max_steps: Option<usize>,
         planning_interval: Option<usize>,
+        history: Option<Vec<Message>>,
+        logging_level: Option<log::LevelFilter>,
     ) -> Result<Self> {
         let system_prompt = system_prompt.unwrap_or(TOOL_CALLING_SYSTEM_PROMPT);
         let base_agent = MultiStepAgent::new(
@@ -46,8 +48,66 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> FunctionCallingAgent<M>
             description,
             max_steps,
             planning_interval,
+            history,
+            logging_level,
         )?;
         Ok(Self { base_agent })
+    }
+}
+
+pub struct FunctionCallingAgentBuilder<'a, M>
+where
+    M: Model + std::fmt::Debug + Send + Sync + 'static,
+{
+    model: M,
+    tools: Vec<Box<dyn AsyncTool>>,
+    system_prompt: Option<&'a str>,
+    managed_agents: Option<HashMap<String, Box<dyn Agent>>>,
+    description: Option<&'a str>,
+    max_steps: Option<usize>,
+    planning_interval: Option<usize>,
+    history: Option<Vec<Message>>,
+    logging_level: Option<log::LevelFilter>,
+}
+
+impl<'a, M: Model + std::fmt::Debug + Send + Sync + 'static> FunctionCallingAgentBuilder<'a, M> {
+    pub fn new(model: M) -> Self {
+        Self { model, tools: vec![], system_prompt: None, managed_agents: None, description: None, max_steps: None, planning_interval: None, history: None, logging_level: None }
+    }
+    pub fn with_tools(mut self, tools: Vec<Box<dyn AsyncTool>>) -> Self {
+        self.tools = tools;
+        self
+    }
+    pub fn with_system_prompt(mut self, system_prompt: Option<&'a str>) -> Self {
+        self.system_prompt = system_prompt;
+        self
+    }
+    pub fn with_managed_agents(mut self, managed_agents: Option<HashMap<String, Box<dyn Agent>>>) -> Self {
+        self.managed_agents = managed_agents;
+        self
+    }
+    pub fn with_description(mut self, description: Option<&'a str>) -> Self {
+        self.description = description;
+        self
+    }
+    pub fn with_max_steps(mut self, max_steps: Option<usize>) -> Self {
+        self.max_steps = max_steps;
+        self
+    }
+    pub fn with_planning_interval(mut self, planning_interval: Option<usize>) -> Self {
+        self.planning_interval = planning_interval;
+        self
+    }
+    pub fn with_history(mut self, history: Option<Vec<Message>>) -> Self {
+        self.history = history;
+        self
+    }
+    pub fn with_logging_level(mut self, logging_level: Option<log::LevelFilter>) -> Self {
+        self.logging_level = logging_level;
+        self
+    }
+    pub fn build(self) -> Result<FunctionCallingAgent<M>> {
+        FunctionCallingAgent::new(self.model, self.tools, self.system_prompt, self.managed_agents, self.description, self.max_steps, self.planning_interval, self.history, self.logging_level)
     }
 }
 
@@ -110,6 +170,7 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                     .model
                     .run(
                         self.base_agent.input_messages.as_ref().unwrap().clone(),
+                        self.base_agent.history.clone(),
                         tools,
                         None,
                         Some(HashMap::from([(

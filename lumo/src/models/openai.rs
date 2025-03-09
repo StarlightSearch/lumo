@@ -124,6 +124,7 @@ pub struct OpenAIServerModel {
     pub client: Client,
     pub temperature: f32,
     pub api_key: String,
+    pub history: Option<Vec<Message>>,
 }
 
 impl OpenAIServerModel {
@@ -132,6 +133,7 @@ impl OpenAIServerModel {
         model_id: Option<&str>,
         temperature: Option<f32>,
         api_key: Option<String>,
+        history: Option<Vec<Message>>,
     ) -> Self {
         let api_key = api_key.unwrap_or_else(|| {
             std::env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY must be set")
@@ -145,7 +147,57 @@ impl OpenAIServerModel {
             client,
             temperature: temperature.unwrap_or(0.5),
             api_key,
+            history,
         }
+    }
+}
+
+pub struct OpenAIServerModelBuilder {
+    base_url: Option<String>,
+    model_id: Option<String>,
+    temperature: Option<f32>,
+    api_key: Option<String>,
+    history: Option<Vec<Message>>,
+}
+
+impl OpenAIServerModelBuilder {
+    pub fn new(model_id: &str) -> Self {
+        Self {
+            base_url: None,
+            model_id: Some(model_id.to_string()),
+            temperature: None,
+            api_key: None,
+            history: None,
+        }
+    }
+    pub fn with_base_url(mut self, base_url: Option<String>) -> Self {
+        self.base_url = base_url;
+        self
+    }
+    pub fn with_model_id(mut self, model_id: Option<String>) -> Self {
+        self.model_id = model_id;
+        self
+    }
+    pub fn with_temperature(mut self, temperature: Option<f32>) -> Self {
+        self.temperature = temperature;
+        self
+    }
+    pub fn with_api_key(mut self, api_key: Option<String>) -> Self {
+        self.api_key = api_key;
+        self
+    }
+    pub fn with_history(mut self, history: Option<Vec<Message>>) -> Self {
+        self.history = history;
+        self
+    }
+    pub fn build(self) -> Result<OpenAIServerModel> {
+        Ok(OpenAIServerModel::new(
+            self.base_url.as_deref(),
+            self.model_id.as_deref(),
+            self.temperature,
+            self.api_key,
+            self.history,
+        ))
     }
 }
 
@@ -154,11 +206,16 @@ impl Model for OpenAIServerModel {
     async fn run(
         &self,
         messages: Vec<Message>,
+        history: Option<Vec<Message>>,
         tools_to_call_from: Vec<ToolInfo>,
         max_tokens: Option<usize>,
         args: Option<HashMap<String, Vec<String>>>,
     ) -> Result<Box<dyn ModelResponse>, AgentError> {
         let max_tokens = max_tokens.unwrap_or(4500);
+        let mut messages = messages;
+        if let Some(history) = history {
+            messages = [history, messages].concat();
+        }
         let mut body = json!({
             "model": self.model_id,
             "messages": messages,

@@ -104,7 +104,7 @@ pub trait Agent: Send + Sync {
         });
         let response = self
             .model()
-            .run(input_messages, vec![], None, None)
+            .run(input_messages, None, vec![], None, None)
             .await?
             .get_response()?;
         Ok(Some(response))
@@ -164,8 +164,7 @@ pub trait Agent: Send + Sync {
                     {
                         for (i, tool_call) in tool_calls.iter().enumerate() {
                             let message_content = format!(
-                                "Call id: {}\nObservation: {}",
-                                tool_call.id.as_deref().unwrap_or_default(),
+                                "Observation: {}",
                                 observations[i]
                             );
 

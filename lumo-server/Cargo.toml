@@ -1,0 +1,19 @@
+[package]
+name = "lumo-server"
+version.workspace = true
+edition.workspace = true
+description = "Server to run lumo agent"
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+
+
+[dependencies]
+actix-web = "4"
+lumo = {workspace = true, features = ["all"]}
+tokio.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+anyhow.workspace = true
+log.workspace = true
+actix-cors = "0.7.0"

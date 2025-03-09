@@ -106,12 +106,16 @@ impl Model for OllamaModel {
     async fn run(
         &self,
         messages: Vec<Message>,
+        history: Option<Vec<Message>>,
         tools_to_call_from: Vec<ToolInfo>,
         max_tokens: Option<usize>,
         args: Option<HashMap<String, Vec<String>>>,
     ) -> Result<Box<dyn ModelResponse>, AgentError> {
         let tools = json!(tools_to_call_from);
-
+        let mut messages = messages;
+        if let Some(history) = history {
+            messages = [history, messages].concat();
+        }
 
         let mut body = json!({
             "model": self.model_id,

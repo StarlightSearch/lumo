@@ -3,13 +3,14 @@ use std::collections::HashMap;
 use anyhow::Result;
 use async_trait::async_trait;
 use clap::{Parser, ValueEnum};
+use lumo::models::gemini::{GeminiServerModel, GeminiServerModelBuilder};
 use serde_json;
-use lumo::agent::Step;
+use lumo::agent::{CodeAgentBuilder, FunctionCallingAgentBuilder, Step};
 use lumo::agent::{Agent, CodeAgent, FunctionCallingAgent};
 use lumo::errors::AgentError;
 use lumo::models::model_traits::{Model, ModelResponse};
 use lumo::models::ollama::{OllamaModel, OllamaModelBuilder};
-use lumo::models::openai::OpenAIServerModel;
+use lumo::models::openai::{OpenAIServerModel, OpenAIServerModelBuilder};
 use lumo::models::types::Message;
 use lumo::tools::{
     AsyncTool, DuckDuckGoSearchTool, GoogleSearchTool, PythonInterpreterTool, ToolInfo,
@@ -35,12 +36,14 @@ enum ToolType {
 enum ModelType {
     OpenAI,
     Ollama,
+    Gemini,
 }
 
 #[derive(Debug)]
 enum ModelWrapper {
     OpenAI(OpenAIServerModel),
     Ollama(OllamaModel),
+    Gemini(GeminiServerModel),
 }
 
 enum AgentWrapper {
@@ -68,13 +71,15 @@ impl Model for ModelWrapper {
     async fn run(
         &self,
         messages: Vec<Message>,
+        history: Option<Vec<Message>>,
         tools: Vec<ToolInfo>,
         max_tokens: Option<usize>,
         args: Option<HashMap<String, Vec<String>>>,
     ) -> Result<Box<dyn ModelResponse>, AgentError> {
         match self {
-            ModelWrapper::OpenAI(m) => Ok(m.run(messages, tools, max_tokens, args).await?),
-            ModelWrapper::Ollama(m) => Ok(m.run(messages, tools, max_tokens, args).await?),
+            ModelWrapper::OpenAI(m) => Ok(m.run(messages, history, tools, max_tokens, args).await?),
+            ModelWrapper::Ollama(m) => Ok(m.run(messages, history, tools, max_tokens, args).await?),
+            ModelWrapper::Gemini(m) => Ok(m.run(messages, history, tools, max_tokens, args).await?),
         }
     }
 }
@@ -91,7 +96,7 @@ struct Args {
     tools: Vec<ToolType>,
 
     /// The type of model to use
-    #[arg(short = 'm', long, value_enum, default_value = "open-ai")]
+    #[arg(short = 'm', long, value_enum, default_value = "gemini")]
     model_type: ModelType,
 
     /// OpenAI API key (only required for OpenAI model)
@@ -99,7 +104,7 @@ struct Args {
     api_key: Option<String>,
 
     /// Model ID (e.g., "gpt-4" for OpenAI or "qwen2.5" for Ollama)
-    #[arg(long, default_value = "gpt-4o-mini")]
+    #[arg(long, default_value = "gemini-2.0-flash")]
     model_id: String,
 
     /// Whether to reset the agent
@@ -136,12 +141,14 @@ async fn main() -> Result<()> {
 
     // Create model based on type
     let model = match args.model_type {
-        ModelType::OpenAI => ModelWrapper::OpenAI(OpenAIServerModel::new(
-            args.base_url.as_deref(),
-            Some(&args.model_id),
-            None,
-            args.api_key,
-        )),
+        ModelType::OpenAI => ModelWrapper::OpenAI(OpenAIServerModelBuilder::new(&args.model_id)
+            .with_base_url(args.base_url.clone())
+            .with_api_key(args.api_key.clone())
+            .build()?),
+        ModelType::Gemini => ModelWrapper::Gemini(GeminiServerModelBuilder::new(&args.model_id)
+            .with_base_url(args.base_url.clone())
+            .with_api_key(args.api_key.clone())
+            .build()?),
         ModelType::Ollama => ModelWrapper::Ollama(
             OllamaModelBuilder::new()
                 .model_id(&args.model_id)
@@ -154,24 +161,16 @@ async fn main() -> Result<()> {
 
     // Create agent based on type
     let mut agent = match args.agent_type {
-        AgentType::FunctionCalling => AgentWrapper::FunctionCalling(FunctionCallingAgent::new(
-            model,
-            tools,
-            None,
-            None,
-            Some("CLI Agent"),
-            args.max_steps,
-            None,
-        )?),
-        AgentType::Code => AgentWrapper::Code(CodeAgent::new(
-            model,
-            tools,
-            None,
-            None,
-            Some("CLI Agent"),
-            None,
-            None,
-        )?),
+        AgentType::FunctionCalling => AgentWrapper::FunctionCalling(FunctionCallingAgentBuilder::new(model)
+            .with_tools(tools)
+            .with_system_prompt(Some("CLI Agent"))
+            .with_max_steps(args.max_steps)
+            .build()?,),
+        AgentType::Code => AgentWrapper::Code(CodeAgentBuilder::new(model)
+            .with_tools(tools)
+            .with_system_prompt(Some("CLI Agent"))
+            .with_max_steps(args.max_steps)
+            .build()?,),
     };
 
     // Run the agent with the task from stdin

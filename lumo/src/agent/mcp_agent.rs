@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    models::model_traits::Model,
+    models::{model_traits::Model, types::Message},
     prompts::TOOL_CALLING_SYSTEM_PROMPT,
     tools::{ToolFunctionInfo, ToolGroup, ToolInfo, ToolType},
 };
@@ -81,6 +81,8 @@ where
         max_steps: Option<usize>,
         mcp_clients: Vec<McpClient<S>>,
         planning_interval: Option<usize>,
+        history: Option<Vec<Message>>,
+        logging_level: Option<log::LevelFilter>,
     ) -> Result<Self> {
         let system_prompt = match system_prompt {
             Some(prompt) => prompt.to_string(),
@@ -102,12 +104,103 @@ where
             Some(&description),
             max_steps,
             planning_interval,
+            history,
+            logging_level,
         )?;
         Ok(Self {
             base_agent,
             mcp_clients,
             tools: tools.to_vec(),
         })
+    }
+}
+
+pub struct McpAgentBuilder<'a, M, S>
+where
+    M: Model + std::fmt::Debug + Send + Sync,
+    S: Service<JsonRpcMessage, Response = JsonRpcMessage> + Clone + Send + Sync + 'static,
+    S::Error: Into<Error>,
+    S::Future: Send,
+{
+    model: M,
+    system_prompt: Option<&'a str>,
+    managed_agents: Option<HashMap<String, Box<dyn Agent>>>,
+    description: Option<&'a str>,
+    max_steps: Option<usize>,
+    planning_interval: Option<usize>,
+    history: Option<Vec<Message>>,
+    mcp_clients: Vec<McpClient<S>>,
+    logging_level: Option<log::LevelFilter>,
+}
+
+impl<'a, M, S> McpAgentBuilder<'a, M, S>
+where
+    M: Model + std::fmt::Debug + Send + Sync,
+    S: Service<JsonRpcMessage, Response = JsonRpcMessage> + Clone + Send + Sync + 'static,
+    S::Error: Into<Error>,
+    S::Future: Send,
+{
+    pub fn new(model: M) -> Self {
+        Self {
+            model,
+            system_prompt: None,
+            managed_agents: None,
+            description: None,
+            max_steps: None,
+            planning_interval: None,
+            history: None,
+            mcp_clients: vec![],
+            logging_level: None,
+        }
+    }
+    pub fn with_system_prompt(mut self, system_prompt: Option<&'a str>) -> Self {
+        self.system_prompt = system_prompt;
+        self
+    }
+    pub fn with_managed_agents(
+        mut self,
+        managed_agents: Option<HashMap<String, Box<dyn Agent>>>,
+    ) -> Self {
+        self.managed_agents = managed_agents;
+        self
+    }
+    pub fn with_description(mut self, description: Option<&'a str>) -> Self {
+        self.description = description;
+        self
+    }
+    pub fn with_max_steps(mut self, max_steps: Option<usize>) -> Self {
+        self.max_steps = max_steps;
+        self
+    }
+    pub fn with_planning_interval(mut self, planning_interval: Option<usize>) -> Self {
+        self.planning_interval = planning_interval;
+        self
+    }
+    pub fn with_history(mut self, history: Option<Vec<Message>>) -> Self {
+        self.history = history;
+        self
+    }
+    pub fn with_mcp_clients(mut self, mcp_clients: Vec<McpClient<S>>) -> Self {
+        self.mcp_clients = mcp_clients;
+        self
+    }
+    pub fn with_logging_level(mut self, logging_level: Option<log::LevelFilter>) -> Self {
+        self.logging_level = logging_level;
+        self
+    }
+    pub async fn build(self) -> Result<McpAgent<M, S>> {
+        McpAgent::new(
+            self.model,
+            self.system_prompt,
+            self.managed_agents,
+            self.description,
+            self.max_steps,
+            self.mcp_clients,
+            self.planning_interval,
+            self.history,
+            self.logging_level,
+        )
+        .await
     }
 }
 
@@ -152,8 +245,15 @@ where
     fn get_planning_interval(&self) -> Option<usize> {
         self.base_agent.get_planning_interval()
     }
-    async fn planning_step(&mut self, task: &str, is_first_step: bool, step: usize) -> Result<Option<Step>> {
-        self.base_agent.planning_step(task, is_first_step, step).await
+    async fn planning_step(
+        &mut self,
+        task: &str,
+        is_first_step: bool,
+        step: usize,
+    ) -> Result<Option<Step>> {
+        self.base_agent
+            .planning_step(task, is_first_step, step)
+            .await
     }
     async fn step(&mut self, log_entry: &mut Step) -> Result<Option<AgentStep>> {
         match log_entry {
@@ -188,6 +288,7 @@ where
                     .model
                     .run(
                         self.base_agent.input_messages.as_ref().unwrap().clone(),
+                        self.base_agent.history.clone(),
                         tools,
                         None,
                         Some(HashMap::from([(
@@ -228,8 +329,17 @@ where
                             );
                             let mut futures = Vec::new();
                             for client in &self.mcp_clients {
-                                if client.list_tools(None).await?.tools.iter().any(|t| t.name == tool.function.name) {
-                                    futures.push(client.call_tool(&tool.function.name, tool.function.arguments.clone()));
+                                if client
+                                    .list_tools(None)
+                                    .await?
+                                    .tools
+                                    .iter()
+                                    .any(|t| t.name == tool.function.name)
+                                {
+                                    futures.push(client.call_tool(
+                                        &tool.function.name,
+                                        tool.function.arguments.clone(),
+                                    ));
                                 }
                             }
                             let results = join_all(futures).await;
@@ -252,7 +362,8 @@ where
                                         ));
                                     }
                                     Err(e) => {
-                                        observations.push(format!("Error from {}: {}", function_name, e));
+                                        observations
+                                            .push(format!("Error from {}: {}", function_name, e));
                                         info!("Error: {}", e);
                                     }
                                 }
@@ -291,10 +402,11 @@ where
 }
 
 #[cfg(feature = "stream")]
-impl<M, S> AgentStream for  McpAgent<M, S>
+impl<M, S> AgentStream for McpAgent<M, S>
 where
     M: Model + std::fmt::Debug + Send + Sync,
     S: Service<JsonRpcMessage, Response = JsonRpcMessage> + Clone + Send + Sync + 'static,
     S::Error: Into<Error>,
     S::Future: Send,
-{}
+{
+}

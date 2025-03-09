@@ -99,6 +99,8 @@ where
     pub input_messages: Option<Vec<Message>>,
     pub logs: Vec<Step>,
     pub planning_interval: Option<usize>,
+    pub history: Option<Vec<Message>>,
+    pub logging_level: Option<log::LevelFilter>,
 }
 
 #[async_trait]
@@ -172,7 +174,7 @@ where
         });
         let response = self
             .model()
-            .run(input_messages, std::vec![], None, None)
+            .run(input_messages, None, std::vec![], None, None)
             .await?
             .get_response()?;
         Ok(Some(response))
@@ -192,10 +194,12 @@ where
         description: Option<&str>,
         max_steps: Option<usize>,
         planning_interval: Option<usize>,
+        history: Option<Vec<Message>>,
+        logging_level: Option<log::LevelFilter>,
     ) -> Result<Self> {
         // Initialize logger
         let _ = log::set_logger(&LOGGER).map(|()| {
-            log::set_max_level(log::LevelFilter::Error);
+            log::set_max_level(logging_level.unwrap_or(log::LevelFilter::Error));
         });
 
         let name = "MultiStepAgent";
@@ -225,6 +229,8 @@ where
             logs: Vec::new(),
             input_messages: None,
             planning_interval: planning_interval,
+            history,
+            logging_level,
         };
 
         agent.initialize_system_prompt()?;
@@ -282,6 +288,7 @@ where
                 .model
                 .run(
                     vec![message_prompt_facts, message_prompt_task],
+                    None, 
                     vec![],
                     None,
                     None,
@@ -320,6 +327,7 @@ where
                 .model
                 .run(
                     vec![message_system_prompt_plan, message_user_prompt_plan],
+                    None,
                     vec![],
                     None,
                     Some(HashMap::from([(

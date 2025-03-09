@@ -27,7 +27,7 @@ impl std::fmt::Display for MessageRole {
     }
 }
 
-#[derive(Debug, Serialize, Clone)]
+#[derive(Debug, Serialize, Clone, Deserialize)]
 pub struct Message {
     pub role: MessageRole,
     pub content: String,
