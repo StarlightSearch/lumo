@@ -8,7 +8,6 @@ use lumo::agent::{
 };
 use lumo::agent::{McpAgent, Step};
 use lumo::errors::AgentError;
-use lumo::models::gemini::{GeminiServerModel, GeminiServerModelBuilder};
 use lumo::models::model_traits::{Model, ModelResponse};
 use lumo::models::ollama::{OllamaModel, OllamaModelBuilder};
 use lumo::models::openai::{OpenAIServerModel, OpenAIServerModelBuilder};
@@ -60,7 +59,6 @@ enum ModelType {
 enum ModelWrapper {
     OpenAI(OpenAIServerModel),
     Ollama(OllamaModel),
-    Gemini(GeminiServerModel),
 }
 
 enum AgentWrapper<
@@ -113,9 +111,6 @@ impl Model for ModelWrapper {
             ModelWrapper::Ollama(m) => {
                 Ok(m.run(messages, history, tools, max_tokens, args).await?)
             }
-            ModelWrapper::Gemini(m) => {
-                Ok(m.run(messages, history, tools, max_tokens, args).await?)
-            }
         }
     }
 }
@@ -154,6 +149,10 @@ struct Args {
     /// Planning interval
     #[arg(short = 'p', long)]
     planning_interval: Option<usize>,
+
+    /// Logging level
+    #[arg(short = 'v', long)]
+    logging_level: Option<log::LevelFilter>,
 }
 
 fn create_tool(tool_type: &ToolType) -> Box<dyn AsyncTool> {
@@ -187,10 +186,20 @@ async fn main() -> Result<()> {
                 .with_api_key(args.api_key.clone())
                 .build()?,
         ),
-        ModelType::Gemini => ModelWrapper::Gemini(
-            GeminiServerModelBuilder::new(&args.model_id)
-                .with_base_url(args.base_url.clone())
-                .with_api_key(args.api_key.clone())
+        ModelType::Gemini => ModelWrapper::OpenAI(
+            OpenAIServerModelBuilder::new(&args.model_id)
+                .with_base_url(Some(
+                    args.base_url.clone().unwrap_or(
+                        "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+                            .to_string(),
+                    ),
+                ))
+                .with_api_key(Some(
+                    args.api_key.clone().unwrap_or(
+                        std::env::var("GEMINI_API_KEY")
+                            .unwrap_or_else(|_| "Gemini API key not found".to_string()),
+                    ),
+                ))
                 .build()?,
         ),
         ModelType::Ollama => ModelWrapper::Ollama(
@@ -212,6 +221,9 @@ async fn main() -> Result<()> {
         ModelType::Ollama => {
             Some("You are a helpful assistant that can answer questions and help with tasks. Take multiple steps if needed until you have completed the task.")
         }
+        // ModelType::Gemini => {
+        //     Some("You are a helpful assistant that can answer questions and help with tasks.")
+        // }
         _=> None,
     };
     let mut agent = match args.agent_type {
@@ -221,6 +233,7 @@ async fn main() -> Result<()> {
                 .with_system_prompt(system_prompt)
                 .with_max_steps(args.max_steps)
                 .with_planning_interval(args.planning_interval)
+                .with_logging_level(args.logging_level)
                 .build()?,
         ),
         AgentType::Code => AgentWrapper::Code(
@@ -229,6 +242,7 @@ async fn main() -> Result<()> {
                 .with_system_prompt(system_prompt)
                 .with_max_steps(args.max_steps)
                 .with_planning_interval(args.planning_interval)
+                .with_logging_level(args.logging_level)
                 .build()?,
         ),
         AgentType::Mcp => {

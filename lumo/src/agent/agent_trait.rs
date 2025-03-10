@@ -25,7 +25,12 @@ pub trait Agent: Send + Sync {
     fn set_task(&mut self, task: &str);
     fn get_system_prompt(&self) -> &str;
     fn get_planning_interval(&self) -> Option<usize>;
-    async fn planning_step(&mut self, task: &str, is_first_step: bool, step: usize) -> Result<Option<Step>>;
+    async fn planning_step(
+        &mut self,
+        task: &str,
+        is_first_step: bool,
+        step: usize,
+    ) -> Result<Option<Step>>;
     fn description(&self) -> String {
         "".to_string()
     }
@@ -39,7 +44,9 @@ pub trait Agent: Send + Sync {
 
             if let Some(planning_interval) = self.get_planning_interval() {
                 if self.get_step_number() % planning_interval == 1 {
-                    self.planning_step(task, self.get_step_number() == 1, self.get_step_number()).await.unwrap();
+                    self.planning_step(task, self.get_step_number() == 1, self.get_step_number())
+                        .await
+                        .unwrap();
                 }
             }
 
@@ -83,13 +90,12 @@ pub trait Agent: Send + Sync {
         self.get_logs_mut().push(Step::TaskStep(task.to_string()));
         self.set_step_number(1);
 
-
         self.direct_run(task).await
     }
 
     async fn provide_final_answer(&mut self, task: &str) -> Result<Option<String>> {
         let mut input_messages = vec![Message {
-            role: MessageRole::System,
+            role: MessageRole::User,
             content: "An agent tried to answer a user query but it got stuck and failed to do so. You are tasked with providing an answer instead. Here is the agent's memory:".to_string(),
             tool_call_id: None,
             tool_calls: None,
@@ -151,9 +157,29 @@ pub trait Agent: Send + Sync {
                 }
                 Step::ActionStep(step_log) => {
                     if step_log.llm_output.is_some() && !summary_mode {
+                        
+                        let llm_output = if step_log.llm_output.as_ref().unwrap().is_empty() {
+                            if let Some(tool_call) = &step_log.tool_call {
+                                tool_call
+                                    .iter()
+                                    .map(|tool_call| {
+                                        format!(
+                                            "Call tool {} with args {}",
+                                            tool_call.function.name, tool_call.function.arguments
+                                        )
+                                    })
+                                    .collect::<Vec<String>>()
+                                    .join("\n")
+                            } else {
+                                "".to_string()
+                            }
+                        } else {
+                            step_log.llm_output.as_ref().unwrap().clone()
+                        };
+                        
                         memory.push(Message {
                             role: MessageRole::Assistant,
-                            content: step_log.llm_output.clone().unwrap_or_default(),
+                            content: llm_output,
                             tool_call_id: None,
                             tool_calls: step_log.tool_call.clone(),
                         });
@@ -163,15 +189,22 @@ pub trait Agent: Send + Sync {
                         (&step_log.tool_call, &step_log.observations)
                     {
                         for (i, tool_call) in tool_calls.iter().enumerate() {
-                            let message_content = format!(
-                                "Observation: {}",
-                                observations[i]
-                            );
+                            let message_content = format!("Observation: {}", observations[i]);
+
+                            let id = if tool_call.id.is_some() {
+                                if tool_call.id.as_ref().unwrap().is_empty() {
+                                    None
+                                } else {
+                                    Some(tool_call.id.as_ref().unwrap().clone())
+                                }
+                            } else {
+                                None
+                            };
 
                             memory.push(Message {
-                                role: MessageRole::ToolResponse,
+                                role: MessageRole::User,
                                 content: message_content,
-                                tool_call_id: tool_call.id.clone(),
+                                tool_call_id: id,
                                 tool_calls: None,
                             });
                         }
@@ -229,7 +262,7 @@ pub trait AgentStream: Agent {
         let stream = async_stream::stream! {
             while final_answer.is_none() && self.get_step_number() < self.get_max_steps() {
                 let mut step_log = Step::ActionStep(AgentStep::new(self.get_step_number()));
-                
+
                 if let Some(planning_interval) = self.get_planning_interval() {
                     if self.get_step_number() % planning_interval == 1 {
                         match self.planning_step(task, self.get_step_number() == 1, self.get_step_number()).await {
@@ -265,6 +298,7 @@ pub trait AgentStream: Agent {
                     Ok(Some(answer)) => {
                         yield Ok(Step::ActionStep(AgentStep {
                             final_answer: Some(answer),
+                            step: self.get_step_number(),
                             ..Default::default()
                         }));
                     }

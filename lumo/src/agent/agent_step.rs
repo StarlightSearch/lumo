@@ -45,7 +45,7 @@ impl AgentStep {
             error: None,
             observations: None,
             final_answer: None,
-            step: step,
+            step,
         }
     }
 }

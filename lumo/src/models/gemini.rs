@@ -17,14 +17,14 @@ use super::{
 };
 
 /// Text content within a chat message
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 #[serde(rename_all = "snake_case")]
 enum GeminiContentPart {
     /// The actual text content
     Text(String),
 }
 
-#[derive(Serialize)]
+#[derive(Serialize, Debug)]
 struct GeminiChatContent {
     role: String,
     parts: Vec<GeminiContentPart>,
@@ -271,7 +271,7 @@ impl Model for GeminiServerModel {
         };
         let request = GeminiChatRequest {
             contents: chat_contents,
-            tools: tools_to_call_from.map(|tools| GeminiTool {
+            tools: tools_to_call_from.as_ref().map(|tools| GeminiTool {
                 function_declarations: tools
                     .iter()
                     .map(|tool| {
@@ -279,6 +279,7 @@ impl Model for GeminiServerModel {
                         if let Value::Object(ref mut map) = parameters {
                             map.remove("$schema");
                             map.remove("title");
+                            map.remove("additionalProperties");
                         }
                         json!({
                             "name": tool.function.name,
@@ -289,15 +290,26 @@ impl Model for GeminiServerModel {
                     .collect(),
             }),
             generation_config: GeminiGenerationConfig {
-                max_output_tokens: max_tokens.map(|t| t as u32),
+                max_output_tokens: Some(max_tokens.unwrap_or(4500) as u32),
                 temperature: Some(self.temperature),
                 top_p: None,
                 top_k: None,
                 stop_sequences,
             },
         };
+        
 
-           let response = self
+        let mut request = json!(request);
+        if let Some(tools) = tools_to_call_from.as_ref() {
+            request["tool_config"] = json!({
+                "function_calling_config": { "mode": "ANY",
+                "allowed_function_names": tools.iter().map(|tool| tool.function.name.to_string()).collect::<Vec<String>>() },
+
+            });
+        }
+        println!("Request: {}", serde_json::to_string_pretty(&request).unwrap());
+
+        let response = self
             .client
             .post(&self.base_url)
             .json(&request)

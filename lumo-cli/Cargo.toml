@@ -28,3 +28,4 @@ directories.workspace = true
 futures.workspace = true
 bat.workspace = true
 rustyline.workspace = true
+log.workspace = true

@@ -13,6 +13,7 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use nanoid::nanoid;
 
 #[derive(Debug, Deserialize)]
 pub struct OpenAIResponse {
@@ -34,10 +35,31 @@ pub struct AssistantMessage {
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ToolCall {
+    #[serde(default = "generate_tool_id", deserialize_with = "deserialize_tool_id")]
     pub id: Option<String>,
     #[serde(rename = "type")]
     pub call_type: Option<String>,
     pub function: FunctionCall,
+}
+
+fn generate_tool_id() -> Option<String> {
+    Some(nanoid!(16))
+}
+
+fn deserialize_tool_id<'de, D>(deserializer: D) -> Result<Option<String>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let opt_id = Option::<String>::deserialize(deserializer)?;
+    if let Some(id) = opt_id {
+        if id.is_empty() {
+            Ok(Some(nanoid!(16)))
+        } else {
+            Ok(Some(id))
+        }
+    } else {
+        Ok(Some(nanoid!(16)))
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -216,6 +238,12 @@ impl Model for OpenAIServerModel {
         if let Some(history) = history {
             messages = [history, messages].concat();
         }
+        let messages = messages.iter().map(|message| {
+            json!({
+                "role": message.role,
+                "content": message.content,
+            })
+        }).collect::<Vec<Value>>();
         let mut body = json!({
             "model": self.model_id,
             "messages": messages,
@@ -234,7 +262,6 @@ impl Model for OpenAIServerModel {
                 body_map.insert(key, json!(value));
             }
         }
-
         let response = self
             .client
             .post(&self.base_url)
