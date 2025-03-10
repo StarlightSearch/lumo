@@ -10,10 +10,10 @@ use crate::{
 };
 use anyhow::Result;
 use async_trait::async_trait;
+use nanoid::nanoid;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use nanoid::nanoid;
 
 #[derive(Debug, Deserialize)]
 pub struct OpenAIResponse {
@@ -192,20 +192,20 @@ impl OpenAIServerModelBuilder {
             history: None,
         }
     }
-    pub fn with_base_url(mut self, base_url: Option<String>) -> Self {
-        self.base_url = base_url;
+    pub fn with_base_url(mut self, base_url: Option<&str>) -> Self {
+        self.base_url = base_url.map(|s| s.to_string());
         self
     }
-    pub fn with_model_id(mut self, model_id: Option<String>) -> Self {
-        self.model_id = model_id;
+    pub fn with_model_id(mut self, model_id: Option<&str>) -> Self {
+        self.model_id = model_id.map(|s| s.to_string());
         self
     }
     pub fn with_temperature(mut self, temperature: Option<f32>) -> Self {
         self.temperature = temperature;
         self
     }
-    pub fn with_api_key(mut self, api_key: Option<String>) -> Self {
-        self.api_key = api_key;
+    pub fn with_api_key(mut self, api_key: Option<&str>) -> Self {
+        self.api_key = api_key.map(|s| s.to_string());
         self
     }
     pub fn with_history(mut self, history: Option<Vec<Message>>) -> Self {
@@ -238,12 +238,15 @@ impl Model for OpenAIServerModel {
         if let Some(history) = history {
             messages = [history, messages].concat();
         }
-        let messages = messages.iter().map(|message| {
-            json!({
-                "role": message.role,
-                "content": message.content,
-            })
-        }).collect::<Vec<Value>>();
+        // let messages = messages
+        //     .iter()
+        //     .map(|message| {
+        //         json!({
+        //             "role": message.role,
+        //             "content": message.content,
+        //         })
+        //     })
+        //     .collect::<Vec<Value>>();
         let mut body = json!({
             "model": self.model_id,
             "messages": messages,
@@ -262,6 +265,7 @@ impl Model for OpenAIServerModel {
                 body_map.insert(key, json!(value));
             }
         }
+
         let response = self
             .client
             .post(&self.base_url)
@@ -284,5 +288,73 @@ impl Model for OpenAIServerModel {
                 response.text().await.unwrap(),
             ))),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::{models::types::MessageBuilder, prompts::CODE_SYSTEM_PROMPT};
+
+    use super::*;
+
+    fn create_tool_response_message_from_tool_call() -> Vec<Message> {
+        vec![
+            MessageBuilder::new(MessageRole::System, CODE_SYSTEM_PROMPT).build(),
+            MessageBuilder::new(MessageRole::User, "Who is elon musk?").build(),
+            MessageBuilder::new(MessageRole::Assistant, "tool request").with_tool_calls(vec![serde_json::from_value::<ToolCall>(json!({
+
+                        "function": {
+                    "arguments": "{\"code\":\"elon_musk_info = duckduckgo_search(query=\\\"who is Elon Musk\\\")\\nprint(elon_musk_info)\"}",
+                    "name": "python_interpreter"
+                  },
+                  "id": "call_RrkJwA8V1BbYJNLvZH37e",
+                  "type": "function"
+                    
+            })).unwrap()]).build(),
+            MessageBuilder::new(MessageRole::ToolResponse, "This is a tool response").with_tool_call_id("call_RrkJwA8V1BbYJNLvZH37e").build(),
+        ]
+    }
+
+    #[tokio::test]
+    async fn test_openai_with_tool_response() {
+        let model = OpenAIServerModelBuilder::new("gpt-4o-mini")
+            .with_base_url(Some("https://api.openai.com/v1/chat/completions"))
+            .build()
+            .unwrap();
+        let response = model
+            .run(
+                create_tool_response_message_from_tool_call(),
+                None,
+                vec![],
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        let response = response.get_response().unwrap();
+        println!("{}", response);
+    }
+
+    #[tokio::test]
+    async fn test_gemini_with_tool_response() {
+        let model = OpenAIServerModelBuilder::new("gemini-2.0-flash")
+            .with_base_url(Some(
+                "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+            ))
+            .with_api_key(Some(&std::env::var("GEMINI_API_KEY").unwrap()))
+            .build()
+            .unwrap();
+        let response = model
+            .run(
+                create_tool_response_message_from_tool_call(),
+                None,
+                vec![],
+                None,
+                None,
+            )
+            .await
+            .unwrap();
+        let response = response.get_response().unwrap();
+        println!("{}", response);
     }
 }

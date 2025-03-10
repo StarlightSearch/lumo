@@ -28,6 +28,7 @@ pub struct CodeAgent<M: Model> {
 
 #[cfg(feature = "code-agent")]
 impl<M: Model + std::fmt::Debug + Send + Sync + 'static> CodeAgent<M> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         model: M,
         tools: Vec<Box<dyn AsyncTool>>,
@@ -199,10 +200,11 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for CodeAgent<M> 
                         self.base_agent.history.clone(),
                         vec![],
                         None,
-                        Some(HashMap::from([(
-                            "stop".to_string(),
-                            vec!["Observation:".to_string(), "<end_code>".to_string()],
-                        )])),
+                        None,
+                        // Some(HashMap::from([(
+                        //     "stop".to_string(),
+                        //     vec!["Observation:".to_string(), "<end_code>".to_string()],
+                        // )])),
                     )
                     .await?;
 
@@ -243,7 +245,7 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for CodeAgent<M> 
                             observation = observation.chars().take(30000).collect::<String>();
                             observation = format!("{} \n....This content has been truncated due to the 30000 character limit.....", observation);
                         } else {
-                            observation = format!("{}", observation);
+                            observation = observation.to_string();
                         }
                         info!("Observation: {}", observation);
 

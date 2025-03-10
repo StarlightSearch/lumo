@@ -73,6 +73,7 @@ where
     S::Error: Into<Error>,
     S::Future: Send,
 {
+    #[allow(clippy::too_many_arguments)]
     pub async fn new(
         model: M,
         system_prompt: Option<&str>,

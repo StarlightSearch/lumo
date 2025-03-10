@@ -88,7 +88,7 @@ impl CliPrinter {
                 }
             }
             Step::PlanningStep(plan, facts) => {
-                println!("\n{} {}", "📍 Step:".bright_cyan().bold(), "Planning");
+                println!("\n{} Planning", "📍 Step:".bright_cyan().bold());
                 println!("\n{}", "📝 Facts:".bright_blue().bold());
                 bat::PrettyPrinter::new()
                     .input(bat::Input::from_bytes(facts.as_bytes()))
@@ -165,7 +165,7 @@ impl CliPrinter {
 
         // Create dynamic border strings
         let horizontal = "─".repeat(width);
-        let empty_line = format!("{}", " ".repeat(width));
+        let empty_line = " ".repeat(width).to_string();
         let title = " 📝 Python Code ";
         let title_padding = (width - title.chars().count()) / 2;
         let top_border = format!(

@@ -142,12 +142,12 @@ async fn main() -> Result<()> {
     // Create model based on type
     let model = match args.model_type {
         ModelType::OpenAI => ModelWrapper::OpenAI(OpenAIServerModelBuilder::new(&args.model_id)
-            .with_base_url(args.base_url.clone())
-            .with_api_key(args.api_key.clone())
+            .with_base_url(args.base_url.as_deref())
+            .with_api_key(args.api_key.as_deref())
             .build()?),
         ModelType::Gemini => ModelWrapper::Gemini(GeminiServerModelBuilder::new(&args.model_id)
-            .with_base_url(args.base_url.clone())
-            .with_api_key(args.api_key.clone())
+            .with_base_url(args.base_url.as_deref())
+            .with_api_key(args.api_key.as_deref())
             .build()?),
         ModelType::Ollama => ModelWrapper::Ollama(
             OllamaModelBuilder::new()

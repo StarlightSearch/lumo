@@ -8,7 +8,7 @@ async fn main() {
         Box::new(PythonInterpreterTool::new()),
     ];
     let model = OpenAIServerModelBuilder::new("gpt-4o-mini")
-        .with_base_url(Some("https://api.openai.com/v1/chat/completions".to_string()))
+        .with_base_url(Some("https://api.openai.com/v1/chat/completions"))
         .build()
         .unwrap();
     let mut agent = FunctionCallingAgentBuilder::new(model)

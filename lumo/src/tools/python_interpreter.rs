@@ -21,7 +21,7 @@ pub struct PythonInterpreterToolParams {
     )]
     code: String,
 }
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct PythonInterpreterTool {
     pub tool: BaseTool,
     pub interpreter: Arc<RwLock<ManuallyDrop<LocalPythonInterpreter>>>,

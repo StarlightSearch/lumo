@@ -28,6 +28,7 @@ where
 }
 
 impl<M: Model + std::fmt::Debug + Send + Sync + 'static> FunctionCallingAgent<M> {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         model: M,
         tools: Vec<Box<dyn AsyncTool>>,

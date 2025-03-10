@@ -70,8 +70,8 @@ async fn health_check() -> impl Responder {
 #[post("/run")]
 async fn run_task(req: Json<RunTaskRequest>) -> Result<impl Responder, actix_web::Error> {
     let model = OpenAIServerModelBuilder::new(&req.model)
-        .with_base_url(Some(req.base_url.clone()))
-        .with_api_key(req.api_key.clone())
+        .with_base_url(Some(&req.base_url))
+        .with_api_key(req.api_key.as_deref())
         .build()
         .map_err(actix_web::error::ErrorInternalServerError)?;
     let tools = req

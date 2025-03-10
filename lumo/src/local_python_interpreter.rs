@@ -404,10 +404,7 @@ fn evaluate_python_code(
     state: &mut HashMap<String, Py<PyAny>>,
     runtime: Option<&Runtime>,
 ) -> Result<String, InterpreterError> {
-    let custom_tools = match custom_tools {
-        Some(tools) => Some(setup_custom_tools(tools, runtime.unwrap())),
-        None => None,
-    };
+    let custom_tools = custom_tools.map(|tools| setup_custom_tools(tools, runtime.unwrap()));
     let code = code.to_string();
     let static_tools = static_tools.clone();
     let state_clone: HashMap<String, Py<PyAny>> = Python::with_gil(|py| {
@@ -450,7 +447,7 @@ fn evaluate_python_code(
             globals.set_item("stdout", string_io.clone())?;
 
             // Redirect stdout
-            let cmd = CString::new(format!("import sys; sys.stdout = stdout")).unwrap();
+            let cmd = CString::new("import sys; sys.stdout = stdout".to_string()).unwrap();
             py.run(&cmd, Some(&globals), None)?;
 
             let code_str = CString::new(code).unwrap();
@@ -472,8 +469,7 @@ fn evaluate_python_code(
 
             let output = locals
                 .get_item("print_logs")
-                .and_then(|obj| Ok(obj.unwrap().extract::<String>().unwrap_or_default()))
-                .unwrap_or_default();
+                .map(|obj| obj.unwrap().extract::<String>().unwrap_or_default())?;
 
             Ok((output, new_state))
         })
@@ -495,7 +491,7 @@ fn evaluate_python_code(
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct LocalPythonInterpreter {
     static_tools: HashMap<&'static str, &'static str>,
     custom_tools: Option<Vec<Box<dyn AsyncTool>>>,

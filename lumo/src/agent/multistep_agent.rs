@@ -155,30 +155,7 @@ where
         todo!()
     }
 
-    
-    
-    async fn provide_final_answer(&mut self, task: &str) -> anyhow::Result<Option<String>> {
-        let mut input_messages = std::vec![Message {
-            role: MessageRole::System,
-            content: "An agent tried to answer a user query but it got stuck and failed to do so. You are tasked with providing an answer instead. Here is the agent's memory:".to_string(),
-            tool_call_id: None,
-            tool_calls: None,
-        }];
-    
-        input_messages.extend(self.write_inner_memory_from_logs(Some(true))?[1..].to_vec());
-        input_messages.push(Message {
-            role: crate::models::types::MessageRole::User,
-            content: std::format!("Based on the above, please provide an answer to the following user request: \n```\n{}", task),
-            tool_call_id: None,
-            tool_calls: None,
-        });
-        let response = self
-            .model()
-            .run(input_messages, None, std::vec![], None, None)
-            .await?
-            .get_response()?;
-        Ok(Some(response))
-    }
+
   
 }
 
@@ -186,6 +163,7 @@ impl<M> MultiStepAgent<M>
 where
     M: Model + Send + Sync + 'static,
 {
+    #[allow(clippy::too_many_arguments)]
     pub fn new(
         model: M,
         mut tools: Vec<Box<dyn AsyncTool>>,
@@ -228,7 +206,7 @@ where
             task: "".to_string(),
             logs: Vec::new(),
             input_messages: None,
-            planning_interval: planning_interval,
+            planning_interval,
             history,
             logging_level,
         };
@@ -344,8 +322,8 @@ where
             let final_facts_redaction =
                 format!("Here are the facts that I know so far: \n{}", answer_facts);
             self.logs.push(Step::PlanningStep(
-                final_plan_redaction.clone(),
                 final_facts_redaction.clone(),
+                final_plan_redaction.clone(),
             ));
             info!("Plan: {}", final_plan_redaction.blue().bold());
             Ok(Some(Step::PlanningStep(

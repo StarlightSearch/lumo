@@ -1,10 +1,10 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use clap::{Parser, ValueEnum};
-use futures::{Stream, StreamExt};
+use futures::StreamExt;
 use lumo::agent::{
     AgentStream, CodeAgent, CodeAgentBuilder, FunctionCallingAgent, FunctionCallingAgentBuilder,
-    McpAgentBuilder,
+    McpAgentBuilder, StreamResult,
 };
 use lumo::agent::{McpAgent, Step};
 use lumo::errors::AgentError;
@@ -23,7 +23,6 @@ use mcp_client::{
 use mcp_core::protocol::JsonRpcMessage;
 use std::collections::HashMap;
 use std::fs::File;
-use std::pin::Pin;
 use std::time::Duration;
 use tower::Service;
 mod config;
@@ -85,7 +84,7 @@ where
         &'a mut self,
         task: &'a str,
         reset: bool,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<Step, anyhow::Error>> + 'a>>> {
+    ) -> StreamResult<'a, Step> {
         match self {
             AgentWrapper::FunctionCalling(agent) => agent.stream_run(task, reset),
             AgentWrapper::Code(agent) => agent.stream_run(task, reset),
@@ -182,21 +181,20 @@ async fn main() -> Result<()> {
     let model = match args.model_type {
         ModelType::OpenAI => ModelWrapper::OpenAI(
             OpenAIServerModelBuilder::new(&args.model_id)
-                .with_base_url(args.base_url.clone())
-                .with_api_key(args.api_key.clone())
+                .with_base_url(args.base_url.as_deref())
+                .with_api_key(args.api_key.as_deref())
                 .build()?,
         ),
         ModelType::Gemini => ModelWrapper::OpenAI(
             OpenAIServerModelBuilder::new(&args.model_id)
                 .with_base_url(Some(
-                    args.base_url.clone().unwrap_or(
+                    args.base_url.as_deref().unwrap_or(
                         "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-                            .to_string(),
                     ),
                 ))
                 .with_api_key(Some(
-                    args.api_key.clone().unwrap_or(
-                        std::env::var("GEMINI_API_KEY")
+                    args.api_key.as_deref().unwrap_or(
+                        &std::env::var("GEMINI_API_KEY")
                             .unwrap_or_else(|_| "Gemini API key not found".to_string()),
                     ),
                 ))

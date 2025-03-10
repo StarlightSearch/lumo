@@ -13,6 +13,8 @@ use log::info;
 #[cfg(feature = "stream")]
 use {futures::Stream, std::pin::Pin};
 
+pub type StreamResult<'a, T> = Result<Pin<Box<dyn Stream<Item = Result<T>> + 'a>>>;
+
 #[async_trait]
 pub trait Agent: Send + Sync {
     fn name(&self) -> &'static str;
@@ -51,10 +53,7 @@ pub trait Agent: Send + Sync {
             }
 
             if let Some(step) = self.step(&mut step_log).await? {
-                final_answer = match step.final_answer {
-                    Some(answer) => Some(answer),
-                    None => None,
-                };
+                final_answer = step.final_answer;
             }
             self.get_logs_mut().push(step_log);
             self.increment_step_number();
@@ -101,7 +100,7 @@ pub trait Agent: Send + Sync {
             tool_calls: None,
         }];
 
-        input_messages.extend(self.write_inner_memory_from_logs(Some(true))?[1..].to_vec());
+        input_messages.extend(self.write_inner_memory_from_logs(Some(false))?[1..].to_vec());
         input_messages.push(Message {
             role: MessageRole::User,
             content: format!("Based on the above, please provide an answer to the following user request: \n```\n{}", task),
@@ -122,14 +121,7 @@ pub trait Agent: Send + Sync {
         for log in self.get_logs_mut() {
             match log {
                 Step::ToolCall(_) => {}
-                Step::PlanningStep(plan, facts) => {
-                    memory.push(Message {
-                        role: MessageRole::Assistant,
-                        content: "[PLAN]:\n".to_owned() + plan.as_str(),
-                        tool_call_id: None,
-                        tool_calls: None,
-                    });
-
+                Step::PlanningStep(facts, plan) => {
                     if !summary_mode {
                         memory.push(Message {
                             role: MessageRole::Assistant,
@@ -138,6 +130,12 @@ pub trait Agent: Send + Sync {
                             tool_calls: None,
                         });
                     }
+                    memory.push(Message {
+                        role: MessageRole::Assistant,
+                        content: "[PLAN]:\n".to_owned() + plan.as_str(),
+                        tool_call_id: None,
+                        tool_calls: None,
+                    });
                 }
                 Step::TaskStep(task) => {
                     memory.push(Message {
@@ -157,7 +155,6 @@ pub trait Agent: Send + Sync {
                 }
                 Step::ActionStep(step_log) => {
                     if step_log.llm_output.is_some() && !summary_mode {
-                        
                         let llm_output = if step_log.llm_output.as_ref().unwrap().is_empty() {
                             if let Some(tool_call) = &step_log.tool_call {
                                 tool_call
@@ -176,7 +173,7 @@ pub trait Agent: Send + Sync {
                         } else {
                             step_log.llm_output.as_ref().unwrap().clone()
                         };
-                        
+
                         memory.push(Message {
                             role: MessageRole::Assistant,
                             content: llm_output,
@@ -202,7 +199,7 @@ pub trait Agent: Send + Sync {
                             };
 
                             memory.push(Message {
-                                role: MessageRole::User,
+                                role: MessageRole::ToolResponse,
                                 content: message_content,
                                 tool_call_id: id,
                                 tool_calls: None,
@@ -241,7 +238,7 @@ pub trait AgentStream: Agent {
         &'a mut self,
         task: &'a str,
         reset: bool,
-    ) -> Result<Pin<Box<dyn Stream<Item = Result<Step>> + 'a>>> {
+    ) -> StreamResult<'a, Step> {
         let system_prompt_step = Step::SystemPromptStep(self.get_system_prompt().to_string());
         if reset {
             self.get_logs_mut().clear();

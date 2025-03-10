@@ -181,20 +181,20 @@ impl GeminiServerModelBuilder {
             history: None,
         }
     }
-    pub fn with_base_url(mut self, base_url: Option<String>) -> Self {
-        self.base_url = base_url;
+    pub fn with_base_url(mut self, base_url: Option<&str>) -> Self {
+        self.base_url = base_url.map(|s| s.to_string());
         self
     }
-    pub fn with_model_id(mut self, model_id: Option<String>) -> Self {
-        self.model_id = model_id;
+    pub fn with_model_id(mut self, model_id: Option<&str>) -> Self {
+        self.model_id = model_id.map(|s| s.to_string());
         self
     }
     pub fn with_temperature(mut self, temperature: Option<f32>) -> Self {
         self.temperature = temperature;
         self
     }
-    pub fn with_api_key(mut self, api_key: Option<String>) -> Self {
-        self.api_key = api_key;
+    pub fn with_api_key(mut self, api_key: Option<&str>) -> Self {
+        self.api_key = api_key.map(|s| s.to_string());
         self
     }
     pub fn with_history(mut self, history: Option<Vec<Message>>) -> Self {
@@ -239,11 +239,6 @@ impl Model for GeminiServerModel {
                         role: "user".to_string(),
                         parts: vec![GeminiContentPart::Text(message.content)],
                     });
-                } else if message.role == MessageRole::ToolResponse {
-                    chat_contents.push(GeminiChatContent {
-                        role: "user".to_string(),
-                        parts: vec![GeminiContentPart::Text(message.content)],
-                    });
                 } else if message.role == MessageRole::Assistant {
                     chat_contents.push(GeminiChatContent {
                         role: "model".to_string(),
@@ -264,11 +259,7 @@ impl Model for GeminiServerModel {
             Some(tools_to_call_from)
         };
 
-        let stop_sequences = if let Some(args) = args {
-            Some(args.get("stop").unwrap_or(&vec![]).to_vec())
-        } else {
-            None
-        };
+        let stop_sequences = args.map(|args| args.get("stop").unwrap_or(&vec![]).to_vec());
         let request = GeminiChatRequest {
             contents: chat_contents,
             tools: tools_to_call_from.as_ref().map(|tools| GeminiTool {
@@ -297,7 +288,6 @@ impl Model for GeminiServerModel {
                 stop_sequences,
             },
         };
-        
 
         let mut request = json!(request);
         if let Some(tools) = tools_to_call_from.as_ref() {
@@ -307,7 +297,10 @@ impl Model for GeminiServerModel {
 
             });
         }
-        println!("Request: {}", serde_json::to_string_pretty(&request).unwrap());
+        println!(
+            "Request: {}",
+            serde_json::to_string_pretty(&request).unwrap()
+        );
 
         let response = self
             .client
