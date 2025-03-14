@@ -27,6 +27,7 @@ pub trait Agent: Send + Sync {
     fn set_task(&mut self, task: &str);
     fn get_system_prompt(&self) -> &str;
     fn get_planning_interval(&self) -> Option<usize>;
+    fn set_planning_interval(&mut self, planning_interval: Option<usize>);
     async fn planning_step(
         &mut self,
         task: &str,

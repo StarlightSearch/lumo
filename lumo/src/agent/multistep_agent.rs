@@ -1,19 +1,20 @@
 use std::collections::HashMap;
 
-use async_trait::async_trait;
-use colored::Colorize;
-use log::info;
-use anyhow::Result;
 use crate::logger::LOGGER;
 use crate::models::model_traits::Model;
 use crate::models::types::{Message, MessageRole};
-use crate::prompts::{user_prompt_plan, SYSTEM_PROMPT_FACTS, SYSTEM_PROMPT_PLAN, TOOL_CALLING_SYSTEM_PROMPT};
-use crate::tools::{FinalAnswerTool, ToolGroup, ToolInfo, AsyncTool};
+use crate::prompts::{
+    user_prompt_plan, SYSTEM_PROMPT_FACTS, SYSTEM_PROMPT_PLAN, TOOL_CALLING_SYSTEM_PROMPT,
+};
+use crate::tools::{AsyncTool, FinalAnswerTool, ToolGroup, ToolInfo};
+use anyhow::Result;
+use async_trait::async_trait;
+use colored::Colorize;
+use log::info;
 
 use super::agent_step::Step;
 use super::agent_trait::Agent;
 use super::AgentStep;
-
 
 const DEFAULT_TOOL_DESCRIPTION_TEMPLATE: &str = r#"
 {{ tool.name }}: {{ tool.description }}
@@ -82,7 +83,6 @@ pub fn format_prompt_with_managed_agent_description(
     }
 }
 
-
 pub struct MultiStepAgent<M>
 where
     M: Model + Send + Sync + 'static,
@@ -126,6 +126,9 @@ where
     fn get_planning_interval(&self) -> Option<usize> {
         self.planning_interval
     }
+    fn set_planning_interval(&mut self, planning_interval: Option<usize>) {
+        self.planning_interval = planning_interval;
+    }
     fn set_step_number(&mut self, step_number: usize) {
         self.step_number = step_number;
     }
@@ -144,7 +147,12 @@ where
     fn model(&self) -> &dyn Model {
         &self.model
     }
-    async fn planning_step(&mut self, task: &str, is_first_step: bool, step: usize) -> Result<Option<Step>> {
+    async fn planning_step(
+        &mut self,
+        task: &str,
+        is_first_step: bool,
+        step: usize,
+    ) -> Result<Option<Step>> {
         self.planning_step(task, is_first_step, step).await
     }
 
@@ -154,14 +162,11 @@ where
     async fn step(&mut self, _: &mut Step) -> Result<Option<AgentStep>> {
         todo!()
     }
-
-
-  
 }
 
 impl<M> MultiStepAgent<M>
 where
-    M: Model + Send + Sync + 'static,
+    M: Model + Send + Sync + std::fmt::Debug + 'static,
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
@@ -240,7 +245,12 @@ where
         Ok(self.system_prompt_template.clone())
     }
 
-    pub async fn planning_step(&mut self, task: &str, is_first_step: bool, _step: usize) -> Result<Option<Step>> {
+    pub async fn planning_step(
+        &mut self,
+        task: &str,
+        is_first_step: bool,
+        _step: usize,
+    ) -> Result<Option<Step>> {
         if is_first_step {
             let message_prompt_facts = Message {
                 role: MessageRole::User,
@@ -261,12 +271,17 @@ where
                 tool_call_id: None,
                 tool_calls: None,
             };
+            let previous_messages = self.write_inner_memory_from_logs(None)?[1..].to_vec();
 
+            let input_messages = previous_messages
+                .into_iter()
+                .chain(vec![message_prompt_facts, message_prompt_task])
+                .collect();
             let answer_facts = self
                 .model
                 .run(
-                    vec![message_prompt_facts, message_prompt_task],
-                    None, 
+                    input_messages,
+                    None,
                     vec![],
                     None,
                     None,
@@ -275,7 +290,7 @@ where
                 .get_response()?;
             log::info!("Facts: {}", answer_facts);
             let message_system_prompt_plan = Message {
-                role: MessageRole::User,
+                role: MessageRole::System,
                 content: SYSTEM_PROMPT_PLAN.to_string(),
                 tool_call_id: None,
                 tool_calls: None,
@@ -331,10 +346,7 @@ where
                 final_facts_redaction.clone(),
             )))
         } else {
-           Ok(None)
+            Ok(None)
         }
-      
     }
-
-    
 }

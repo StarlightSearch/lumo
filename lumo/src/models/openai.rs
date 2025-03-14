@@ -266,6 +266,7 @@ impl Model for OpenAIServerModel {
             }
         }
 
+
         let response = self
             .client
             .post(&self.base_url)

@@ -147,6 +147,9 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
     fn model(&self) -> &dyn Model {
         self.base_agent.model()
     }
+    fn set_planning_interval(&mut self, planning_interval: Option<usize>) {
+        self.base_agent.set_planning_interval(planning_interval);
+    }
     async fn planning_step(&mut self, task: &str, is_first_step: bool, step: usize) -> Result<Option<Step>> {
         self.base_agent.planning_step(task, is_first_step, step).await
     }
@@ -304,8 +307,13 @@ fn extract_action_json(text: &str) -> Option<String> {
         let end = action_part.rfind('}');
         if let (Some(start_idx), Some(end_idx)) = (start, end) {
             let json_str = action_part[start_idx..=end_idx].to_string();
-            // Clean the string of control characters and normalize newlines
-            return Some(json_str.replace(|c: char| c.is_control() && c != '\n', "").replace("\n", "\\n"));
+            // Clean the string and preserve only valid JSON characters
+            return Some(json_str
+                .chars()
+                .filter(|c| !c.is_control() || *c == '\n')
+                .collect::<String>()
+                .trim()
+                .to_string());
         }
     }
     
@@ -314,15 +322,19 @@ fn extract_action_json(text: &str) -> Option<String> {
         if let Some(content) = tool_call_part.split("</tool_call>").next() {
             let trimmed = content.trim();
             if trimmed.starts_with('{') && trimmed.ends_with('}') {
-                // Clean the string of control characters and normalize newlines
-                return Some(trimmed.replace(|c: char| c.is_control() && c != '\n', "").replace("\n", "\\n"));
+                // Clean the string and preserve only valid JSON characters
+                return Some(trimmed
+                    .chars()
+                    .filter(|c| !c.is_control() || *c == '\n')
+                    .collect::<String>()
+                    .trim()
+                    .to_string());
             }
         }
     }
     
     None
 }
-
 // Example usage in your parse_response function:
 pub fn parse_response(response: &str) -> Result<serde_json::Value, AgentError> {
     if let Some(json_str) = extract_action_json(response) {

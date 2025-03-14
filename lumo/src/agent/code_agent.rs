@@ -172,6 +172,9 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for CodeAgent<M> 
     fn get_planning_interval(&self) -> Option<usize> {
         self.base_agent.get_planning_interval()
     }
+    fn set_planning_interval(&mut self, planning_interval: Option<usize>) {
+        self.base_agent.set_planning_interval(planning_interval);
+    }
     async fn planning_step(
         &mut self,
         task: &str,
