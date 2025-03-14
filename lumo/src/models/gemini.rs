@@ -297,11 +297,6 @@ impl Model for GeminiServerModel {
 
             });
         }
-
-        //write request to a file
-        let request_str = serde_json::to_string(&request).unwrap();
-        std::fs::write("request.json", request_str).unwrap();
-
         let response = self
             .client
             .post(&self.base_url)
