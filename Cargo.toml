@@ -22,7 +22,7 @@ colored = "3.0.0"
 scraper = "0.23.1"
 terminal_size = "0.4.1"
 schemars = "0.8.22"
-chrono = "0.4.40"
+chrono = "0.4.39"
 rustpython-parser = { version = "0.4.0" }
 pyo3 = { version = "0.23.5", features = ["auto-initialize"]}
 regex = "1.11.0"
@@ -38,6 +38,7 @@ serde_yaml = "0.9.33"
 directories = "6.0.0"
 strip-ansi-escapes = "0.2.0"
 lumo = {path = "lumo"}
+
 
 # mcp
 mcp-client = {git = "https://github.com/modelcontextprotocol/rust-sdk"}

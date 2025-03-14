@@ -203,9 +203,7 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                                 },
                             }];
                             step_log.tool_call = Some(tools.clone());
-                        } else {
-                            observations.push(response.clone());
-                        }
+                        } 
                     }
                     if tools.is_empty() {
                         self.base_agent.write_inner_memory_from_logs(None)?;

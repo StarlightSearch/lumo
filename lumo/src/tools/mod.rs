@@ -8,6 +8,8 @@ pub mod google_search;
 pub mod tool_traits;
 pub mod visit_website;
 
+pub mod lance_rag;
+
 #[cfg(feature = "code-agent")]
 pub mod python_interpreter;
 
@@ -20,3 +22,5 @@ pub use visit_website::*;
 
 #[cfg(feature = "code-agent")]
 pub use python_interpreter::*;
+
+pub use lance_rag::*;

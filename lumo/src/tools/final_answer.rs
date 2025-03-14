@@ -8,14 +8,14 @@ use super::base::BaseTool;
 use super::tool_traits::Tool;
 use anyhow::Result;
 
-#[derive(Debug, Deserialize, JsonSchema)]
+#[derive(Deserialize, JsonSchema)]
 #[schemars(title = "FinalAnswerToolParams")]
 pub struct FinalAnswerToolParams {
     #[schemars(description = "The final answer to the task. Always use to give the final answer.")]
     answer: String,
 }
 
-#[derive(Debug, Serialize, Default, Clone)]
+#[derive(Serialize, Default, Clone)]
 pub struct FinalAnswerTool {
     pub tool: BaseTool,
 }

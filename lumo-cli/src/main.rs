@@ -8,13 +8,13 @@ use lumo::agent::{
 };
 use lumo::agent::{McpAgent, Step};
 use lumo::errors::AgentError;
+use lumo::models::gemini::{GeminiServerModel, GeminiServerModelBuilder};
 use lumo::models::model_traits::{Model, ModelResponse};
 use lumo::models::ollama::{OllamaModel, OllamaModelBuilder};
 use lumo::models::openai::{OpenAIServerModel, OpenAIServerModelBuilder};
 use lumo::models::types::Message;
 use lumo::tools::{
-    AsyncTool, DuckDuckGoSearchTool, GoogleSearchTool, PythonInterpreterTool, ToolInfo,
-    VisitWebsiteTool,
+    AsyncTool, DuckDuckGoSearchTool, GoogleSearchTool, LanceRAGTool, PythonInterpreterTool, ToolInfo, VisitWebsiteTool
 };
 use mcp_client::{
     ClientCapabilities, ClientInfo, McpClient, McpClientTrait, McpService, StdioTransport,
@@ -31,6 +31,8 @@ mod cli_utils;
 use cli_utils::CliPrinter;
 mod splash;
 use splash::SplashScreen;
+use embed_anything::embeddings::embed::EmbedderBuilder;
+use std::sync::Arc;
 
 #[derive(Debug, Clone, ValueEnum)]
 enum AgentType {
@@ -45,6 +47,7 @@ enum ToolType {
     VisitWebsite,
     GoogleSearchTool,
     PythonInterpreter,
+    LanceRAG,
 }
 
 #[derive(Debug, Clone, ValueEnum)]
@@ -58,6 +61,7 @@ enum ModelType {
 enum ModelWrapper {
     OpenAI(OpenAIServerModel),
     Ollama(OllamaModel),
+    Gemini(GeminiServerModel),
 }
 
 enum AgentWrapper<
@@ -110,6 +114,9 @@ impl Model for ModelWrapper {
             ModelWrapper::Ollama(m) => {
                 Ok(m.run(messages, history, tools, max_tokens, args).await?)
             }
+            ModelWrapper::Gemini(m) => {
+                Ok(m.run(messages, history, tools, max_tokens, args).await?)
+            }
         }
     }
 }
@@ -122,7 +129,7 @@ struct Args {
     agent_type: AgentType,
 
     /// List of tools to use
-    #[arg(short = 'l', long = "tools", value_enum, num_args = 1.., value_delimiter = ',', default_values_t = [ToolType::DuckDuckGo, ToolType::VisitWebsite])]
+    #[arg(short = 'l', long = "tools", value_enum, num_args = 1.., value_delimiter = ',', default_values_t = [ToolType::LanceRAG])]
     tools: Vec<ToolType>,
 
     /// The type of model to use
@@ -154,12 +161,40 @@ struct Args {
     logging_level: Option<log::LevelFilter>,
 }
 
-fn create_tool(tool_type: &ToolType) -> Box<dyn AsyncTool> {
+async fn create_tool(tool_type: &ToolType) -> Box<dyn AsyncTool> {
     match tool_type {
         ToolType::DuckDuckGo => Box::new(DuckDuckGoSearchTool::new()),
         ToolType::VisitWebsite => Box::new(VisitWebsiteTool::new()),
         ToolType::GoogleSearchTool => Box::new(GoogleSearchTool::new(None)),
         ToolType::PythonInterpreter => Box::new(PythonInterpreterTool::new()),
+        ToolType::LanceRAG => {
+            let dense_model = Arc::new(
+                EmbedderBuilder::new()
+                    .model_architecture("jina")
+                    .model_id(Some("jinaai/jina-embeddings-v2-small-en"))
+                    .path_in_repo(Some("model.onnx"))
+                    .from_pretrained_onnx()
+                    .unwrap(),
+            );
+            Box::new(LanceRAGTool::new(
+                "C:\\Users\\arbal\\AppData\\Roaming\\com.starlight.starlight",
+                "test",
+
+                Box::new(move |text: String| Box::pin({
+                    let model = Arc::clone(&dense_model);
+                    async move {
+                        model.embed_query(&[text.as_str()], None)
+                            .await
+                            .unwrap()
+                            .first()
+                            .unwrap()
+                            .embedding
+                            .to_dense().unwrap()
+                    }
+                })),
+                5
+            ).await.unwrap())
+        }
     }
 }
 
@@ -175,7 +210,9 @@ async fn main() -> Result<()> {
 
     let args = Args::parse();
 
-    let tools: Vec<Box<dyn AsyncTool>> = args.tools.iter().map(create_tool).collect();
+    let tools: Vec<Box<dyn AsyncTool>> = futures::future::join_all(
+        args.tools.iter().map(create_tool)
+    ).await.into_iter().collect();
 
     // Create model based on type
     let model = match args.model_type {
@@ -185,13 +222,13 @@ async fn main() -> Result<()> {
                 .with_api_key(args.api_key.as_deref())
                 .build()?,
         ),
-        ModelType::Gemini => ModelWrapper::OpenAI(
-            OpenAIServerModelBuilder::new(&args.model_id)
-                .with_base_url(Some(
-                    args.base_url.as_deref().unwrap_or(
-                        "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-                    ),
-                ))
+        ModelType::Gemini => ModelWrapper::Gemini(
+            GeminiServerModelBuilder::new(&args.model_id)
+                // .with_base_url(Some(
+                //     args.base_url.as_deref().unwrap_or(
+                //         "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+                //     ),
+                // ))
                 .with_api_key(Some(
                     args.api_key.as_deref().unwrap_or(
                         &std::env::var("GEMINI_API_KEY")

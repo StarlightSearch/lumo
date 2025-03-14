@@ -25,3 +25,5 @@ directories = "6.0.0"
 futures.workspace = true
 bat.workspace = true
 log.workspace = true
+
+embed_anything = { git = "https://github.com/StarlightSearch/EmbedAnything.git", features = ["ort"], optional = true }

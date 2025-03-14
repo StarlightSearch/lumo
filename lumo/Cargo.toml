@@ -26,6 +26,11 @@ async-trait.workspace = true
 futures.workspace = true
 nanoid.workspace = true
 
+lancedb = {version = "0.18.1", default-features=false,  optional = true}
+embed_anything = { git = "https://github.com/StarlightSearch/EmbedAnything.git", features = ["ort"], optional = true }
+rusqlite = { version = "0.34.0", features = ["bundled"], optional=true }
+arrow-array = {version = "54.2.1", optional = true}
+
 # mcp
 mcp-client = {git = "https://github.com/modelcontextprotocol/rust-sdk", optional = true}
 mcp-core = {git = "https://github.com/modelcontextprotocol/rust-sdk", optional = true}
@@ -39,12 +44,13 @@ textwrap = "0.16.0"
 tokio = {workspace = true, features = ["rt-multi-thread", "macros", "full"]}
 
 [features]
-default = []
+default = ["all"]
 cli = ["dep:clap"]
 mcp = ["dep:mcp-client", "dep:mcp-core", "dep:tower" ]
 code-agent = ["dep:rustpython-parser", "dep:pyo3", "dep:tokio"]
 stream = ["dep:async-stream"]
-all = ["cli", "code-agent", "mcp", "stream"]
+rag = ["dep:lancedb", "dep:embed_anything", "dep:rusqlite", "dep:arrow-array"]
+all = ["cli", "code-agent", "mcp", "stream", "rag"]
 
 [dependencies.clap]
 version = "4.5.1"

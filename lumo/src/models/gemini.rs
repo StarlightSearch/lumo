@@ -234,7 +234,7 @@ impl Model for GeminiServerModel {
         }
         for message in messages {
             if !message.content.is_empty() {
-                if message.role == MessageRole::System {
+                if message.role == MessageRole::System || message.role == MessageRole::ToolResponse {
                     chat_contents.push(GeminiChatContent {
                         role: "user".to_string(),
                         parts: vec![GeminiContentPart::Text(message.content)],
@@ -297,10 +297,10 @@ impl Model for GeminiServerModel {
 
             });
         }
-        println!(
-            "Request: {}",
-            serde_json::to_string_pretty(&request).unwrap()
-        );
+
+        //write request to a file
+        let request_str = serde_json::to_string(&request).unwrap();
+        std::fs::write("request.json", request_str).unwrap();
 
         let response = self
             .client

@@ -265,8 +265,6 @@ impl Model for OpenAIServerModel {
                 body_map.insert(key, json!(value));
             }
         }
-
-
         let response = self
             .client
             .post(&self.base_url)

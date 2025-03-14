@@ -17,7 +17,7 @@ pub trait Parameters: DeserializeOwned + JsonSchema {}
 
 /// A trait for tools that can be used in an agent.
 #[async_trait]
-pub trait Tool: Debug + Send + Sync {
+pub trait Tool:  Send + Sync {
     type Params: Parameters;
     /// The name of the tool.
     fn name(&self) -> &'static str;
@@ -79,12 +79,12 @@ pub fn get_json_schema(tool: &ToolInfo) -> serde_json::Value {
 }
 
 #[async_trait]
-pub trait ToolGroup: Debug {
+pub trait ToolGroup {
     async fn call(&self, arguments: &FunctionCall) -> Result<String, AgentExecutionError>;
     fn tool_info(&self) -> Vec<ToolInfo>;
 }
 
-pub trait AnyTool: Debug + Send + Sync {
+pub trait AnyTool: Send + Sync {
     fn name(&self) -> &'static str;
     fn description(&self) -> &'static str;
     fn tool_info(&self) -> ToolInfo;
