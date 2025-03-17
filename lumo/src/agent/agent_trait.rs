@@ -1,18 +1,14 @@
-use std::sync::Arc;
-
 use super::agent_step::Step;
 use crate::{
     agent::agent_step::AgentStep,
     models::{
         model_traits::Model,
         types::{Message, MessageRole},
-    }, tools::Tool,
+    }
 };
 use anyhow::Result;
 use async_trait::async_trait;
 use log::info;
-use schemars::JsonSchema;
-use serde::Deserialize;
 
 #[cfg(feature = "stream")]
 use {futures::Stream, std::pin::Pin};
@@ -312,26 +308,3 @@ pub trait AgentStream: Agent {
     }
 }
 
-#[derive(Deserialize, JsonSchema)]
-#[schemars(title = "AgentParams")]
-pub struct AgentParams {
-    #[schemars(description = "The task to perform")]
-    task: String,
-}
-
-#[async_trait]
-impl <A: Agent> Tool for Box<A> {
-    type Params = AgentParams;
-
-    fn name(&self) -> &'static str {
-        (**self).name()
-    }
-
-    fn description(&self) -> &'static str {
-        (**self).description()
-    }
-    
-    async fn forward(&mut self, arguments: AgentParams) -> Result<String> {
-        self.direct_run(&arguments.task).await
-    }
-}

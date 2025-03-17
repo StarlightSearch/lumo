@@ -79,7 +79,7 @@ pub fn get_json_schema(tool: &ToolInfo) -> serde_json::Value {
 }
 
 #[async_trait]
-pub trait ToolGroup: Send + Sync {
+pub trait ToolGroup {
     async fn call(&self, arguments: &FunctionCall) -> Result<String, AgentExecutionError>;
     fn tool_info(&self) -> Vec<ToolInfo>;
 }

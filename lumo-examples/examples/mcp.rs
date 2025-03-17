@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use anyhow::Result;
+use log::LevelFilter;
 use mcp_client::{
     ClientCapabilities, ClientInfo, Error as ClientError, McpClient, McpClientTrait, McpService,
     StdioTransport, Transport,
@@ -9,7 +10,6 @@ use lumo::agent::{Agent, McpAgentBuilder};
 use lumo::models::openai::OpenAIServerModelBuilder;
 use std::time::Duration;
 
-use lumo::agent::mcp_agent::McpAgent;
 use lumo::prompts::TOOL_CALLING_SYSTEM_PROMPT;
 
 #[tokio::main]
@@ -54,6 +54,7 @@ async fn main() -> Result<(), ClientError> {
     let mut agent = McpAgentBuilder::new(model)
         .with_system_prompt(Some(TOOL_CALLING_SYSTEM_PROMPT))
         .with_mcp_clients(vec![client])
+        .with_logging_level(Some(LevelFilter::Info))
         .build()
         .await.unwrap();
     // Use agent here

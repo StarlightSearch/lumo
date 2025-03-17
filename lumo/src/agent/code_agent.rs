@@ -2,6 +2,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use log::info;
 use std::{collections::HashMap, mem::ManuallyDrop};
+use tracing::{instrument, Span};
 
 use crate::{
     errors::{AgentError, InterpreterError},
@@ -197,9 +198,12 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for CodeAgent<M> 
     fn model(&self) -> &dyn Model {
         self.base_agent.model()
     }
+    #[instrument(skip(self, log_entry), fields(step = ?self.get_step_number()))]
     async fn step(&mut self, log_entry: &mut Step) -> Result<Option<AgentStep>> {
         let step_result = match log_entry {
             Step::ActionStep(step_log) => {
+                let span = Span::current();
+                span.record("step_type", "action");
                 let agent_memory = self.base_agent.write_inner_memory_from_logs(None)?;
                 self.base_agent.input_messages = Some(agent_memory.clone());
                 step_log.agent_memory = Some(agent_memory);
@@ -212,11 +216,11 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for CodeAgent<M> 
                         self.base_agent.history.clone(),
                         vec![],
                         None,
-                        None,
-                        // Some(HashMap::from([(
-                        //     "stop".to_string(),
-                        //     vec!["Observation:".to_string(), "<end_code>".to_string()],
-                        // )])),
+                        // None,
+                        Some(HashMap::from([(
+                            "stop".to_string(),
+                            vec!["Observation:".to_string(), "<end_code>".to_string()],
+                        )])),
                     )
                     .await?;
 
@@ -227,12 +231,12 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for CodeAgent<M> 
                     Ok(code) => code,
                     Err(e) => {
                         step_log.error = Some(e.clone());
-                        info!("Error: {}", response + "\n" + &e.to_string());
+                        tracing::info!("Error: {}", response + "\n" + &e.to_string());
                         return Ok(Some(step_log.clone()));
                     }
                 };
 
-                info!("Code: {}", code);
+                tracing::info!("Code: {}", code);
                 step_log.tool_call = Some(vec![ToolCall {
                     id: Some(format!("call_{}", nanoid::nanoid!())),
                     call_type: Some("function".to_string()),
@@ -241,6 +245,11 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for CodeAgent<M> 
                         arguments: serde_json::json!({ "code": code }),
                     },
                 }]);
+                tracing::info!(
+                    tool_calls= serde_json::to_string_pretty(&step_log.tool_call.clone().unwrap()).unwrap_or_default(),
+                    step = ?self.get_step_number(),
+                    "Executing tool call:"
+                );
                 let result = self.local_python_interpreter.forward(&code);
                 match result {
                     Ok(result) => {
@@ -259,7 +268,7 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for CodeAgent<M> 
                         } else {
                             observation = observation.to_string();
                         }
-                        info!("Observation: {}", observation);
+                        tracing::info!("Observation: {}", observation);
 
                         step_log.observations = Some(vec![observation]);
                     }
@@ -271,7 +280,7 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for CodeAgent<M> 
                         }
                         _ => {
                             step_log.error = Some(AgentError::Execution(e.to_string()));
-                            info!("Error: {}", e);
+                            tracing::info!("Error: {}", e);
                         }
                     },
                 }

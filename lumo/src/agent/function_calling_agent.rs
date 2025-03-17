@@ -1,20 +1,20 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use futures::future::join_all;
+use serde_json::json;
 use std::collections::HashMap;
 
 use crate::{
     agent::Agent,
-    errors::{AgentError, AgentExecutionError},
+    errors::AgentError,
     models::{
         model_traits::Model,
         openai::{FunctionCall, ToolCall},
         types::Message,
     },
     prompts::TOOL_CALLING_SYSTEM_PROMPT,
-    tools::{AsyncTool, ToolGroup},
+    tools::{AsyncTool,  ToolFunctionInfo, ToolGroup, ToolInfo, ToolType},
 };
-use tracing::{info, instrument, Span};
+use tracing::{instrument, Span};
 
 use super::{agent_step::Step, multistep_agent::MultiStepAgent, AgentStep};
 
@@ -208,12 +208,35 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                 self.base_agent.input_messages = Some(agent_memory.clone());
                 step_log.agent_memory = Some(agent_memory.clone());
 
-                let tools = self
+                let mut tools = self
                     .base_agent
                     .tools
                     .iter()
                     .map(|tool| tool.tool_info())
                     .collect::<Vec<_>>();
+                let managed_agents = self
+                    .base_agent
+                    .managed_agents
+                    .iter()
+                    .map(|agent| ToolInfo {
+                        tool_type: ToolType::Function,
+                        function: ToolFunctionInfo {
+                            name: agent.name(),
+                            description: agent.description(),
+                            parameters: json!({
+                                "type": "object",
+                                "properties": {
+                                    "task": {
+                                        "type": "string",
+                                        "description": "The task to perform"
+                                    }
+                                }
+                            }),
+                        },
+                    })
+                    .collect::<Vec<_>>();
+
+                tools.extend(managed_agents);
 
                 tracing::debug!("Starting model inference with {} tools", tools.len());
                 let model_message = self
@@ -254,8 +277,6 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                                 },
                             }];
                             step_log.tool_call = Some(tools.clone());
-                        } else {
-                            observations.push(response.clone());
                         }
                     }
                     if tools.is_empty() {
@@ -270,15 +291,18 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                     observations = vec!["No tool call was made. If this is the final answer, use the final_answer tool to return your answer.".to_string()];
                 } else {
                     let tools_ref = &self.base_agent.tools;
-                    let futures = tools.into_iter().map(|tool| async move {
+                    for tool in tools {
                         let function_name = tool.function.name.clone();
 
                         match function_name.as_str() {
                             "final_answer" => {
                                 let answer = tools_ref.call(&tool.function).await?;
+                                step_log.final_answer = Some(answer.clone());
+                                step_log.observations = Some(vec![answer.clone()]);
                                 tracing::info!(answer = %answer, "Final answer received");
-                                Ok::<_, AgentExecutionError>((true, function_name, answer))
+                                return Ok(Some(step_log.clone()));
                             }
+
                             _ => {
                                 tracing::info!(
                                     tool = %function_name,
@@ -286,53 +310,42 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                                     "Executing tool call:"
                                 );
 
-                                let observation = tools_ref.call(&tool.function).await;
-                                match observation {
-                                    Ok(observation) => {
-                                        let formatted = format!(
-                                            "Observation from {}: {}",
-                                            function_name,
-                                            observation.chars().take(30000).collect::<String>()
-                                        );
-                                        tracing::debug!(
-                                            tool = %function_name,
-                                            observation = %formatted,
-                                            "Tool call succeeded"
-                                        );
-                                        Ok((false, function_name, formatted))
-                                    }
-                                    Err(e) => {
-                                        tracing::error!(
-                                            tool = %function_name,
-                                            error = %e,
-                                            "Tool call failed"
-                                        );
-                                        Ok((false, function_name, e.to_string()))
-                                    }
-                                }
-                            }
-                        }
-                    });
-
-                    let results = join_all(futures).await;
-                    for result in results {
-                        match result {
-                            Ok((is_final, name, output)) => {
-                                if is_final {
-                                    step_log.final_answer = Some(output.clone());
-                                    step_log.observations = Some(vec![output.clone()]);
-                                    return Ok(Some(step_log.clone()));
+                                let managed_agent = self
+                                    .base_agent
+                                    .managed_agents
+                                    .iter_mut()
+                                    .find(|agent| agent.name() == function_name);
+                                if let Some(managed_agent) = managed_agent {
+                                    let observation =
+                                        managed_agent.run(&self.base_agent.task, true).await?;
+                                    observations.push(observation);
                                 } else {
-                                    let output_clone = output.clone();
-                                    observations.push(output);
-                                    if output_clone.starts_with("Error:") {
-                                        info!("Error in {}: {}", name, output_clone);
+                                    let observation = tools_ref.call(&tool.function).await;
+
+                                    match observation {
+                                        Ok(observation) => {
+                                            let formatted = format!(
+                                                "Observation from {}: {}",
+                                                function_name,
+                                                observation.chars().take(30000).collect::<String>()
+                                            );
+                                            tracing::debug!(
+                                                tool = %function_name,
+                                                observation = %formatted,
+                                                "Tool call succeeded"
+                                            );
+                                            observations.push(formatted);
+                                        }
+                                        Err(e) => {
+                                            tracing::error!(
+                                                tool = %function_name,
+                                                error = %e,
+                                                "Tool call failed"
+                                            );
+                                            observations.push(e.to_string());
+                                        }
                                     }
                                 }
-                            }
-                            Err(e) => {
-                                observations.push(e.to_string());
-                                info!("Error: {}", e);
                             }
                         }
                     }
