@@ -1,6 +1,5 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use log::info;
 use std::collections::HashMap;
 use futures::future::join_all;
 
@@ -14,6 +13,7 @@ use crate::{
     prompts::TOOL_CALLING_SYSTEM_PROMPT,
     tools::{AsyncTool, ToolGroup},
 };
+use tracing::{info, instrument, Span};
 
 use super::{agent_step::Step, multistep_agent::MultiStepAgent, AgentStep};
 
@@ -157,36 +157,43 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
     /// Perform one step in the ReAct framework: the agent thinks, acts, and observes the result.
     ///
     /// Returns None if the step is not final.
+    #[instrument(skip(self, log_entry), fields(step = ?self.get_step_number()))]
     async fn step(&mut self, log_entry: &mut Step) -> Result<Option<AgentStep>> {
         match log_entry {
             Step::ActionStep(step_log) => {
+                let span = Span::current();
+                span.record("step_type", "action");
+                
                 let agent_memory = self.base_agent.write_inner_memory_from_logs(None)?;
                 self.base_agent.input_messages = Some(agent_memory.clone());
                 step_log.agent_memory = Some(agent_memory.clone());
-                let tools = self
-                    .base_agent
-                    .tools
-                    .iter()
+                
+                let tools = self.base_agent.tools.iter()
                     .map(|tool| tool.tool_info())
                     .collect::<Vec<_>>();
-                let model_message = self
-                    .base_agent
-                    .model
+
+                tracing::debug!("Starting model inference with {} tools", tools.len());
+                let model_message = self.base_agent.model
                     .run(
                         self.base_agent.input_messages.as_ref().unwrap().clone(),
                         self.base_agent.history.clone(),
                         tools,
                         None,
-                        Some(HashMap::from([(
-                            "stop".to_string(),
-                            vec!["Observation:".to_string()],
-                        )])),
+                        Some(HashMap::from([("stop".to_string(), vec!["Observation:".to_string()])])),
                     )
                     .await?;
+
                 step_log.llm_output = Some(model_message.get_response().unwrap_or_default());
                 let mut observations = Vec::new();
                 let mut tools = model_message.get_tools_used()?;
                 step_log.tool_call = Some(tools.clone());
+                
+                tracing::info!(
+                    step = self.get_step_number(),
+
+                    tool_calls = serde_json::to_string_pretty(&tools).unwrap_or_default(),
+                    "Agent selected tools"
+                );
 
                 if let Ok(response) = model_message.get_response() {
                     if !response.trim().is_empty() {
@@ -221,16 +228,20 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                     let tools_ref = &self.base_agent.tools;
                     let futures = tools.into_iter().map(|tool| async move {
                         let function_name = tool.function.name.clone();
+                        
                         match function_name.as_str() {
                             "final_answer" => {
                                 let answer = tools_ref.call(&tool.function).await?;
+                                tracing::info!(answer = %answer, "Final answer received");
                                 Ok::<_, AgentExecutionError>((true, function_name, answer))
                             }
                             _ => {
-                                info!(
-                                    "Executing tool call: {} with arguments: {:?}",
-                                    function_name, tool.function.arguments
+                                tracing::info!(
+                                    tool = %function_name,
+                                    args = ?tool.function.arguments,
+                                    "Executing tool call:"
                                 );
+                                
                                 let observation = tools_ref.call(&tool.function).await;
                                 match observation {
                                     Ok(observation) => {
@@ -239,9 +250,21 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                                             function_name,
                                             observation.chars().take(30000).collect::<String>()
                                         );
+                                        tracing::debug!(
+                                            tool = %function_name,
+                                            observation = %formatted,
+                                            "Tool call succeeded"
+                                        );
                                         Ok((false, function_name, formatted))
                                     }
-                                    Err(e) => Ok((false, function_name, e.to_string())),
+                                    Err(e) => {
+                                        tracing::error!(
+                                            tool = %function_name,
+                                            error = %e,
+                                            "Tool call failed"
+                                        );
+                                        Ok((false, function_name, e.to_string()))
+                                    }
                                 }
                             }
                         }
@@ -281,12 +304,12 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                     .len()
                     > 30000
                 {
-                    info!(
+                    tracing::debug!(
                         "Observation: {} \n ....This content has been truncated due to the 30000 character limit.....",
                         step_log.observations.clone().unwrap_or_default().join("\n").trim().chars().take(30000).collect::<String>()
                     );
                 } else {
-                    info!(
+                    tracing::debug!(
                         "Observation: {}",
                         step_log.observations.clone().unwrap_or_default().join("\n")
                     );

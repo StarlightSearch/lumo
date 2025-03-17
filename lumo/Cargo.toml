@@ -25,6 +25,7 @@ regex.workspace = true
 async-trait.workspace = true
 futures.workspace = true
 nanoid.workspace = true
+tracing = {workspace = true}
 
 # mcp
 mcp-client = {git = "https://github.com/modelcontextprotocol/rust-sdk", optional = true}

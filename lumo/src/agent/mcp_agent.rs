@@ -8,10 +8,10 @@ use crate::{
 use anyhow::Result;
 use async_trait::async_trait;
 use futures::future::join_all;
-use log::info;
 use mcp_client::{Error, McpClient, McpClientTrait};
 use mcp_core::{protocol::JsonRpcMessage, Content, Tool};
 use tower::Service;
+use tracing::{instrument, Span};
 
 use super::{Agent, AgentStep, MultiStepAgent, Step};
 
@@ -259,18 +259,26 @@ where
             .planning_step(task, is_first_step, step)
             .await
     }
+    /// Perform one step in the ReAct framework: the agent thinks, acts, and observes the result.
+    ///
+    /// Returns None if the step is not final.
+    #[instrument(skip(self, log_entry), fields(step = ?self.get_step_number()))]
     async fn step(&mut self, log_entry: &mut Step) -> Result<Option<AgentStep>> {
         match log_entry {
             Step::ActionStep(step_log) => {
+                let span = Span::current();
+                span.record("step_type", "action");
+
                 let agent_memory = self.base_agent.write_inner_memory_from_logs(None)?;
                 self.base_agent.input_messages = Some(agent_memory.clone());
                 step_log.agent_memory = Some(agent_memory.clone());
-                let mut tools = self
-                    .tools
-                    .iter()
+
+                let mut tools = self.tools.iter()
                     .cloned()
                     .map(ToolInfo::from)
                     .collect::<Vec<_>>();
+                
+                // Add final answer tool
                 let final_answer_tool = ToolInfo::from(Tool::new(
                     "final_answer",
                     "Use this to provide your final answer to the user's request",
@@ -287,25 +295,27 @@ where
                 ));
                 tools.push(final_answer_tool);
 
-                let model_message = self
-                    .base_agent
-                    .model
+                tracing::debug!("Starting model inference with {} tools", tools.len());
+                let model_message = self.base_agent.model
                     .run(
                         self.base_agent.input_messages.as_ref().unwrap().clone(),
                         self.base_agent.history.clone(),
                         tools,
                         None,
-                        Some(HashMap::from([(
-                            "stop".to_string(),
-                            vec!["Observation:".to_string()],
-                        )])),
+                        Some(HashMap::from([("stop".to_string(), vec!["Observation:".to_string()])])),
                     )
                     .await?;
-                step_log.llm_output = Some(model_message.get_response().unwrap_or_default());
 
+                step_log.llm_output = Some(model_message.get_response().unwrap_or_default());
                 let mut observations = Vec::new();
                 let tools = model_message.get_tools_used()?;
                 step_log.tool_call = Some(tools.clone());
+
+                tracing::info!(
+                    step = self.get_step_number(),
+                    tool_calls = serde_json::to_string_pretty(&tools).unwrap_or_default(),
+                    "Agent selected tools"
+                );
 
                 if let Ok(response) = model_message.get_response() {
                     if tools.is_empty() {
@@ -320,55 +330,56 @@ where
 
                     match function_name.as_str() {
                         "final_answer" => {
-                            info!("Executing tool call: {}", function_name);
+                            tracing::info!(answer = ?tool.function.arguments, "Final answer received");
                             let answer = self.base_agent.tools.call(&tool.function).await?;
                             step_log.observations = Some(vec![answer.clone()]);
                             step_log.final_answer = Some(answer.clone());
                             return Ok(Some(step_log.clone()));
                         }
                         _ => {
-                            info!(
-                                "Executing tool call: {} with arguments: {:?}",
-                                function_name, tool.function.arguments
+                            tracing::info!(
+                                tool = %function_name,
+                                args = ?tool.function.arguments,
+                                "Executing tool call"
                             );
+
                             let mut futures = Vec::new();
                             for client in &self.mcp_clients {
-                                if client
-                                    .list_tools(None)
-                                    .await?
-                                    .tools
-                                    .iter()
-                                    .any(|t| t.name == tool.function.name)
-                                {
-                                    futures.push(client.call_tool(
-                                        &tool.function.name,
-                                        tool.function.arguments.clone(),
-                                    ));
+                                if client.list_tools(None).await?.tools.iter().any(|t| t.name == tool.function.name) {
+                                    futures.push(client.call_tool(&tool.function.name, tool.function.arguments.clone()));
                                 }
                             }
                             let results = join_all(futures).await;
                             for result in results {
                                 match result {
                                     Ok(observation) => {
-                                        let text = observation
-                                            .content
-                                            .iter()
+                                        let text = observation.content.iter()
                                             .map(|content| match content {
                                                 Content::Text(text) => text.text.clone(),
                                                 _ => "".to_string(),
                                             })
                                             .collect::<Vec<_>>()
                                             .join("\n");
-                                        observations.push(format!(
+                                        let formatted = format!(
                                             "Observation from {}: {}",
                                             function_name,
                                             text.chars().take(30000).collect::<String>()
-                                        ));
+                                        );
+                                        tracing::debug!(
+                                            tool = %function_name,
+                                            observation = %formatted,
+                                            "Tool call succeeded"
+                                        );
+                                        observations.push(formatted);
                                     }
                                     Err(e) => {
-                                        observations
-                                            .push(format!("Error from {}: {}", function_name, e));
-                                        info!("Error: {}", e);
+                                        let error_msg = format!("Error from {}: {}", function_name, e);
+                                        tracing::error!(
+                                            tool = %function_name,
+                                            error = %e,
+                                            "Tool call failed"
+                                        );
+                                        observations.push(error_msg);
                                     }
                                 }
                             }
@@ -377,21 +388,13 @@ where
                 }
                 step_log.observations = Some(observations);
 
-                if step_log
-                    .observations
-                    .clone()
-                    .unwrap_or_default()
-                    .join("\n")
-                    .trim()
-                    .len()
-                    > 30000
-                {
-                    info!(
+                if step_log.observations.clone().unwrap_or_default().join("\n").trim().len() > 30000 {
+                    tracing::debug!(
                         "Observation: {} \n ....This content has been truncated due to the 30000 character limit.....",
                         step_log.observations.clone().unwrap_or_default().join("\n").trim().chars().take(30000).collect::<String>()
                     );
                 } else {
-                    info!(
+                    tracing::debug!(
                         "Observation: {}",
                         step_log.observations.clone().unwrap_or_default().join("\n")
                     );
