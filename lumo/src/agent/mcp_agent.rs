@@ -1,9 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    models::{model_traits::Model, types::Message},
-    prompts::TOOL_CALLING_SYSTEM_PROMPT,
-    tools::{ToolFunctionInfo, ToolGroup, ToolInfo, ToolType},
+    errors::AgentError, models::{model_traits::Model, types::Message}, prompts::TOOL_CALLING_SYSTEM_PROMPT, tools::{ToolFunctionInfo, ToolGroup, ToolInfo, ToolType}
 };
 use anyhow::Result;
 use async_trait::async_trait;
@@ -275,7 +273,7 @@ where
     ///
     /// Returns None if the step is not final.
     #[instrument(skip(self, log_entry), fields(step = ?self.get_step_number()))]
-    async fn step(&mut self, log_entry: &mut Step) -> Result<Option<AgentStep>> {
+    async fn step(&mut self, log_entry: &mut Step) -> Result<Option<AgentStep>, AgentError> {
         match log_entry {
             Step::ActionStep(step_log) => {
                 let span = Span::current();
@@ -366,7 +364,7 @@ where
                             for client in &self.mcp_clients {
                                 if client
                                     .list_tools(None)
-                                    .await?
+                                    .await.map_err(|e| AgentError::Execution(e.to_string()))?
                                     .tools
                                     .iter()
                                     .any(|t| t.name == tool.function.name)

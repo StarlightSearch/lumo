@@ -1,6 +1,5 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use log::info;
 use std::{collections::HashMap, mem::ManuallyDrop};
 use tracing::{instrument, Span};
 
@@ -28,7 +27,7 @@ pub struct CodeAgent<M: Model> {
 }
 
 #[cfg(feature = "code-agent")]
-impl<M: Model + std::fmt::Debug + Send + Sync + 'static> CodeAgent<M> {
+impl<M: Model + Send + Sync + 'static> CodeAgent<M> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         name: Option<&str>,
@@ -79,7 +78,7 @@ pub struct CodeAgentBuilder<'a, M: Model> {
     logging_level: Option<log::LevelFilter>,
 }
 
-impl<'a, M: Model + std::fmt::Debug + Send + Sync + 'static> CodeAgentBuilder<'a, M> {
+impl<'a, M: Model + Send + Sync + 'static> CodeAgentBuilder<'a, M> {
     pub fn new(model: M) -> Self {
         Self {
             name: None,
@@ -148,7 +147,7 @@ impl<'a, M: Model + std::fmt::Debug + Send + Sync + 'static> CodeAgentBuilder<'a
 
 #[cfg(feature = "code-agent")]
 #[async_trait]
-impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for CodeAgent<M> {
+impl<M: Model  + Send + Sync + 'static> Agent for CodeAgent<M> {
     fn name(&self) -> &'static str {
         self.base_agent.name()
     }
@@ -199,7 +198,7 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for CodeAgent<M> 
         self.base_agent.model()
     }
     #[instrument(skip(self, log_entry), fields(step = ?self.get_step_number()))]
-    async fn step(&mut self, log_entry: &mut Step) -> Result<Option<AgentStep>> {
+    async fn step(&mut self, log_entry: &mut Step) -> Result<Option<AgentStep>, AgentError> {
         let step_result = match log_entry {
             Step::ActionStep(step_log) => {
                 let span = Span::current();

@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::errors::AgentError;
 use crate::logger::LOGGER;
 use crate::models::model_traits::Model;
 use crate::models::types::{Message, MessageRole};
@@ -106,7 +107,7 @@ where
 #[async_trait]
 impl<M> Agent for MultiStepAgent<M>
 where
-    M: Model + std::fmt::Debug + Send + Sync + 'static,
+    M: Model + Send + Sync + 'static,
 {
     fn name(&self) -> &'static str {
         self.name
@@ -159,14 +160,14 @@ where
     /// Perform one step in the ReAct framework: the agent thinks, acts, and observes the result.
     ///
     /// Returns None if the step is not final.
-    async fn step(&mut self, _: &mut Step) -> Result<Option<AgentStep>> {
+    async fn step(&mut self, _: &mut Step) -> Result<Option<AgentStep>, AgentError> {
         todo!()
     }
 }
 
 impl<M> MultiStepAgent<M>
 where
-    M: Model + Send + Sync + std::fmt::Debug + 'static,
+    M: Model + Send + Sync + 'static,
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(

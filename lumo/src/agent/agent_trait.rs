@@ -1,7 +1,6 @@
 use super::agent_step::Step;
 use crate::{
-    agent::agent_step::AgentStep,
-    models::{
+    agent::agent_step::AgentStep, errors::AgentError, models::{
         model_traits::Model,
         types::{Message, MessageRole},
     }
@@ -36,9 +35,9 @@ pub trait Agent: Send + Sync{
     ) -> Result<Option<Step>>;
     fn description(&self) -> &'static str;
     fn model(&self) -> &dyn Model;
-    async fn step(&mut self, log_entry: &mut Step) -> Result<Option<AgentStep>>;
+    async fn step(&mut self, log_entry: &mut Step) -> Result<Option<AgentStep>, AgentError>;
 
-    async fn direct_run(&mut self, task: &str) -> Result<String> {
+    async fn direct_run(&mut self, task: &str) -> Result<String, AgentError> {
         let mut final_answer: Option<String> = None;
         while final_answer.is_none() && self.get_step_number() < self.get_max_steps() {
             let mut step_log = Step::ActionStep(AgentStep::new(self.get_step_number()));
@@ -70,7 +69,7 @@ pub trait Agent: Send + Sync{
         Ok(final_answer.unwrap_or_else(|| "Max steps reached without final answer".to_string()))
     }
 
-    async fn run(&mut self, task: &str, reset: bool) -> Result<String> {
+    async fn run(&mut self, task: &str, reset: bool) -> Result<String, AgentError> {
         self.set_task(task);
         self.set_step_number(1);
         let system_prompt_step = Step::SystemPromptStep(self.get_system_prompt().to_string());
@@ -91,7 +90,7 @@ pub trait Agent: Send + Sync{
         self.direct_run(task).await
     }
 
-    async fn provide_final_answer(&mut self, task: &str) -> Result<Option<String>> {
+    async fn provide_final_answer(&mut self, task: &str) -> Result<Option<String>, AgentError> {
         let mut input_messages = vec![Message {
             role: MessageRole::User,
             content: "An agent tried to answer a user query but it got stuck and failed to do so. You are tasked with providing an answer instead. Here is the agent's memory:".to_string(),
@@ -114,7 +113,7 @@ pub trait Agent: Send + Sync{
         Ok(Some(response))
     }
 
-    fn write_inner_memory_from_logs(&mut self, summary_mode: Option<bool>) -> Result<Vec<Message>> {
+    fn write_inner_memory_from_logs(&mut self, summary_mode: Option<bool>) -> Result<Vec<Message>, AgentError> {
         let mut memory = Vec::new();
         let summary_mode = summary_mode.unwrap_or(false);
         for log in self.get_logs_mut() {
@@ -283,7 +282,7 @@ pub trait AgentStream: Agent {
                     }
                     Ok(None) => {},
                     Err(e) => {
-                        yield Err(e);
+                        yield Err(e.into());
                         break;
                     }
                 }
@@ -299,7 +298,7 @@ pub trait AgentStream: Agent {
                         }));
                     }
                     Ok(None) => {},
-                    Err(e) => yield Err(e),
+                    Err(e) => yield Err(e.into()),
                 }
             }
         };
