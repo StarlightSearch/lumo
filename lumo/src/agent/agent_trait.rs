@@ -1,14 +1,18 @@
+use std::sync::Arc;
+
 use super::agent_step::Step;
 use crate::{
     agent::agent_step::AgentStep,
     models::{
         model_traits::Model,
         types::{Message, MessageRole},
-    },
+    }, tools::Tool,
 };
 use anyhow::Result;
 use async_trait::async_trait;
 use log::info;
+use schemars::JsonSchema;
+use serde::Deserialize;
 
 #[cfg(feature = "stream")]
 use {futures::Stream, std::pin::Pin};
@@ -16,7 +20,7 @@ use {futures::Stream, std::pin::Pin};
 pub type StreamResult<'a, T> = Result<Pin<Box<dyn Stream<Item = Result<T>> + 'a>>>;
 
 #[async_trait]
-pub trait Agent: Send + Sync {
+pub trait Agent: Send + Sync{
     fn name(&self) -> &'static str;
     fn get_max_steps(&self) -> usize;
     fn get_step_number(&self) -> usize;
@@ -34,9 +38,7 @@ pub trait Agent: Send + Sync {
         is_first_step: bool,
         step: usize,
     ) -> Result<Option<Step>>;
-    fn description(&self) -> String {
-        "".to_string()
-    }
+    fn description(&self) -> &'static str;
     fn model(&self) -> &dyn Model;
     async fn step(&mut self, log_entry: &mut Step) -> Result<Option<AgentStep>>;
 
@@ -307,5 +309,29 @@ pub trait AgentStream: Agent {
         };
 
         Ok(Box::pin(stream))
+    }
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[schemars(title = "AgentParams")]
+pub struct AgentParams {
+    #[schemars(description = "The task to perform")]
+    task: String,
+}
+
+#[async_trait]
+impl <A: Agent> Tool for Box<A> {
+    type Params = AgentParams;
+
+    fn name(&self) -> &'static str {
+        (**self).name()
+    }
+
+    fn description(&self) -> &'static str {
+        (**self).description()
+    }
+    
+    async fn forward(&mut self, arguments: AgentParams) -> Result<String> {
+        self.direct_run(&arguments.task).await
     }
 }

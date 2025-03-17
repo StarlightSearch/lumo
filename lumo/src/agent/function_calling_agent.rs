@@ -1,14 +1,15 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use std::collections::HashMap;
 use futures::future::join_all;
+use std::collections::HashMap;
 
 use crate::{
     agent::Agent,
     errors::{AgentError, AgentExecutionError},
     models::{
         model_traits::Model,
-        openai::{FunctionCall, ToolCall}, types::Message,
+        openai::{FunctionCall, ToolCall},
+        types::Message,
     },
     prompts::TOOL_CALLING_SYSTEM_PROMPT,
     tools::{AsyncTool, ToolGroup},
@@ -30,10 +31,11 @@ where
 impl<M: Model + std::fmt::Debug + Send + Sync + 'static> FunctionCallingAgent<M> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
+        name: Option<&str>,
         model: M,
         tools: Vec<Box<dyn AsyncTool>>,
         system_prompt: Option<&str>,
-        managed_agents: Option<HashMap<String, Box<dyn Agent>>>,
+        managed_agents: Vec<Box<dyn Agent>>,
         description: Option<&str>,
         max_steps: Option<usize>,
         planning_interval: Option<usize>,
@@ -42,6 +44,7 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> FunctionCallingAgent<M>
     ) -> Result<Self> {
         let system_prompt = system_prompt.unwrap_or(TOOL_CALLING_SYSTEM_PROMPT);
         let base_agent = MultiStepAgent::new(
+            name,
             model,
             tools,
             Some(system_prompt),
@@ -60,10 +63,11 @@ pub struct FunctionCallingAgentBuilder<'a, M>
 where
     M: Model + std::fmt::Debug + Send + Sync + 'static,
 {
+    name: Option<&'a str>,
     model: M,
     tools: Vec<Box<dyn AsyncTool>>,
     system_prompt: Option<&'a str>,
-    managed_agents: Option<HashMap<String, Box<dyn Agent>>>,
+    managed_agents: Vec<Box<dyn Agent>>,
     description: Option<&'a str>,
     max_steps: Option<usize>,
     planning_interval: Option<usize>,
@@ -73,7 +77,22 @@ where
 
 impl<'a, M: Model + std::fmt::Debug + Send + Sync + 'static> FunctionCallingAgentBuilder<'a, M> {
     pub fn new(model: M) -> Self {
-        Self { model, tools: vec![], system_prompt: None, managed_agents: None, description: None, max_steps: None, planning_interval: None, history: None, logging_level: None }
+        Self {
+            name: None,
+            model,
+            tools: vec![],
+            system_prompt: None,
+            managed_agents: vec![],
+            description: None,
+            max_steps: None,
+            planning_interval: None,
+            history: None,
+            logging_level: None,
+        }
+    }
+    pub fn with_name(mut self, name: Option<&'a str>) -> Self {
+        self.name = name;
+        self
     }
     pub fn with_tools(mut self, tools: Vec<Box<dyn AsyncTool>>) -> Self {
         self.tools = tools;
@@ -83,7 +102,7 @@ impl<'a, M: Model + std::fmt::Debug + Send + Sync + 'static> FunctionCallingAgen
         self.system_prompt = system_prompt;
         self
     }
-    pub fn with_managed_agents(mut self, managed_agents: Option<HashMap<String, Box<dyn Agent>>>) -> Self {
+    pub fn with_managed_agents(mut self, managed_agents: Vec<Box<dyn Agent>>) -> Self {
         self.managed_agents = managed_agents;
         self
     }
@@ -108,7 +127,18 @@ impl<'a, M: Model + std::fmt::Debug + Send + Sync + 'static> FunctionCallingAgen
         self
     }
     pub fn build(self) -> Result<FunctionCallingAgent<M>> {
-        FunctionCallingAgent::new(self.model, self.tools, self.system_prompt, self.managed_agents, self.description, self.max_steps, self.planning_interval, self.history, self.logging_level)
+        FunctionCallingAgent::new(
+            self.name,
+            self.model,
+            self.tools,
+            self.system_prompt,
+            self.managed_agents,
+            self.description,
+            self.max_steps,
+            self.planning_interval,
+            self.history,
+            self.logging_level,
+        )
     }
 }
 
@@ -116,6 +146,9 @@ impl<'a, M: Model + std::fmt::Debug + Send + Sync + 'static> FunctionCallingAgen
 impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCallingAgent<M> {
     fn name(&self) -> &'static str {
         self.base_agent.name()
+    }
+    fn description(&self) -> &'static str {
+        self.base_agent.description()
     }
     fn set_task(&mut self, task: &str) {
         self.base_agent.set_task(task);
@@ -150,8 +183,15 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
     fn set_planning_interval(&mut self, planning_interval: Option<usize>) {
         self.base_agent.set_planning_interval(planning_interval);
     }
-    async fn planning_step(&mut self, task: &str, is_first_step: bool, step: usize) -> Result<Option<Step>> {
-        self.base_agent.planning_step(task, is_first_step, step).await
+    async fn planning_step(
+        &mut self,
+        task: &str,
+        is_first_step: bool,
+        step: usize,
+    ) -> Result<Option<Step>> {
+        self.base_agent
+            .planning_step(task, is_first_step, step)
+            .await
     }
 
     /// Perform one step in the ReAct framework: the agent thinks, acts, and observes the result.
@@ -163,23 +203,31 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
             Step::ActionStep(step_log) => {
                 let span = Span::current();
                 span.record("step_type", "action");
-                
+
                 let agent_memory = self.base_agent.write_inner_memory_from_logs(None)?;
                 self.base_agent.input_messages = Some(agent_memory.clone());
                 step_log.agent_memory = Some(agent_memory.clone());
-                
-                let tools = self.base_agent.tools.iter()
+
+                let tools = self
+                    .base_agent
+                    .tools
+                    .iter()
                     .map(|tool| tool.tool_info())
                     .collect::<Vec<_>>();
 
                 tracing::debug!("Starting model inference with {} tools", tools.len());
-                let model_message = self.base_agent.model
+                let model_message = self
+                    .base_agent
+                    .model
                     .run(
                         self.base_agent.input_messages.as_ref().unwrap().clone(),
                         self.base_agent.history.clone(),
                         tools,
                         None,
-                        Some(HashMap::from([("stop".to_string(), vec!["Observation:".to_string()])])),
+                        Some(HashMap::from([(
+                            "stop".to_string(),
+                            vec!["Observation:".to_string()],
+                        )])),
                     )
                     .await?;
 
@@ -187,10 +235,9 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                 let mut observations = Vec::new();
                 let mut tools = model_message.get_tools_used()?;
                 step_log.tool_call = Some(tools.clone());
-                
+
                 tracing::info!(
                     step = self.get_step_number(),
-
                     tool_calls = serde_json::to_string_pretty(&tools).unwrap_or_default(),
                     "Agent selected tools"
                 );
@@ -202,10 +249,7 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                                 id: Some(format!("call_{}", nanoid::nanoid!())),
                                 call_type: Some("function".to_string()),
                                 function: FunctionCall {
-                                    name: action["name"]
-                                        .as_str()
-                                        .unwrap_or_default()
-                                        .to_string(),
+                                    name: action["name"].as_str().unwrap_or_default().to_string(),
                                     arguments: action["arguments"].clone(),
                                 },
                             }];
@@ -228,7 +272,7 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                     let tools_ref = &self.base_agent.tools;
                     let futures = tools.into_iter().map(|tool| async move {
                         let function_name = tool.function.name.clone();
-                        
+
                         match function_name.as_str() {
                             "final_answer" => {
                                 let answer = tools_ref.call(&tool.function).await?;
@@ -241,7 +285,7 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                                     args = ?tool.function.arguments,
                                     "Executing tool call:"
                                 );
-                                
+
                                 let observation = tools_ref.call(&tool.function).await;
                                 match observation {
                                     Ok(observation) => {
@@ -331,31 +375,35 @@ fn extract_action_json(text: &str) -> Option<String> {
         if let (Some(start_idx), Some(end_idx)) = (start, end) {
             let json_str = action_part[start_idx..=end_idx].to_string();
             // Clean the string and preserve only valid JSON characters
-            return Some(json_str
-                .chars()
-                .filter(|c| !c.is_control() || *c == '\n')
-                .collect::<String>()
-                .trim()
-                .to_string());
+            return Some(
+                json_str
+                    .chars()
+                    .filter(|c| !c.is_control() || *c == '\n')
+                    .collect::<String>()
+                    .trim()
+                    .to_string(),
+            );
         }
     }
-    
+
     // If no Action: format found, try extracting from tool_call tags
     if let Some(tool_call_part) = text.split("<tool_call>").nth(1) {
         if let Some(content) = tool_call_part.split("</tool_call>").next() {
             let trimmed = content.trim();
             if trimmed.starts_with('{') && trimmed.ends_with('}') {
                 // Clean the string and preserve only valid JSON characters
-                return Some(trimmed
-                    .chars()
-                    .filter(|c| !c.is_control() || *c == '\n')
-                    .collect::<String>()
-                    .trim()
-                    .to_string());
+                return Some(
+                    trimmed
+                        .chars()
+                        .filter(|c| !c.is_control() || *c == '\n')
+                        .collect::<String>()
+                        .trim()
+                        .to_string(),
+                );
             }
         }
     }
-    
+
     None
 }
 // Example usage in your parse_response function:
@@ -370,12 +418,12 @@ pub fn parse_response(response: &str) -> Result<serde_json::Value, AgentError> {
 }
 
 #[cfg(feature = "stream")]
-impl<M: Model + std::fmt::Debug + Send + Sync + 'static> AgentStream for FunctionCallingAgent<M>{}
+impl<M: Model + std::fmt::Debug + Send + Sync + 'static> AgentStream for FunctionCallingAgent<M> {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_extract_action_json() {
         let response = r#"<tool_call>
@@ -392,8 +440,10 @@ mod tests {
 final answer"}}
 </tool_call>"#;
         let json_str = parse_response(response).unwrap();
-        println!("json_str: {}", serde_json::to_string_pretty(&json_str).unwrap());
+        println!(
+            "json_str: {}",
+            serde_json::to_string_pretty(&json_str).unwrap()
+        );
         // assert_eq!(json_str, serde_json::json!({"name": "final_answer", "arguments": {"answer": "This is the final answer"}}));
     }
-    
 }

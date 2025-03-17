@@ -30,10 +30,11 @@ pub struct CodeAgent<M: Model> {
 impl<M: Model + std::fmt::Debug + Send + Sync + 'static> CodeAgent<M> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
+        name: Option<&str>,
         model: M,
         tools: Vec<Box<dyn AsyncTool>>,
         system_prompt: Option<&str>,
-        managed_agents: Option<HashMap<String, Box<dyn Agent>>>,
+        managed_agents: Vec<Box<dyn Agent>>,
         description: Option<&str>,
         max_steps: Option<usize>,
         planning_interval: Option<usize>,
@@ -43,6 +44,7 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> CodeAgent<M> {
         let system_prompt = system_prompt.unwrap_or(CODE_SYSTEM_PROMPT);
 
         let base_agent = MultiStepAgent::new(
+            name,
             model,
             tools,
             Some(system_prompt),
@@ -64,10 +66,11 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> CodeAgent<M> {
 }
 
 pub struct CodeAgentBuilder<'a, M: Model> {
+    name: Option<&'a str>,
     model: M,
     tools: Vec<Box<dyn AsyncTool>>,
     system_prompt: Option<&'a str>,
-    managed_agents: Option<HashMap<String, Box<dyn Agent>>>,
+    managed_agents: Vec<Box<dyn Agent>>,
     description: Option<&'a str>,
     max_steps: Option<usize>,
     planning_interval: Option<usize>,
@@ -78,16 +81,21 @@ pub struct CodeAgentBuilder<'a, M: Model> {
 impl<'a, M: Model + std::fmt::Debug + Send + Sync + 'static> CodeAgentBuilder<'a, M> {
     pub fn new(model: M) -> Self {
         Self {
+            name: None,
             model,
             tools: vec![],
             system_prompt: None,
-            managed_agents: None,
+            managed_agents: vec![],
             description: None,
             max_steps: None,
             planning_interval: None,
             history: None,
             logging_level: None,
         }
+    }
+    pub fn with_name(mut self, name: Option<&'a str>) -> Self {
+        self.name = name;
+        self
     }
     pub fn with_tools(mut self, tools: Vec<Box<dyn AsyncTool>>) -> Self {
         self.tools = tools;
@@ -97,10 +105,7 @@ impl<'a, M: Model + std::fmt::Debug + Send + Sync + 'static> CodeAgentBuilder<'a
         self.system_prompt = system_prompt;
         self
     }
-    pub fn with_managed_agents(
-        mut self,
-        managed_agents: Option<HashMap<String, Box<dyn Agent>>>,
-    ) -> Self {
+    pub fn with_managed_agents(mut self, managed_agents: Vec<Box<dyn Agent>>) -> Self {
         self.managed_agents = managed_agents;
         self
     }
@@ -126,6 +131,7 @@ impl<'a, M: Model + std::fmt::Debug + Send + Sync + 'static> CodeAgentBuilder<'a
     }
     pub fn build(self) -> Result<CodeAgent<M>> {
         CodeAgent::new(
+            self.name,
             self.model,
             self.tools,
             self.system_prompt,
@@ -144,6 +150,9 @@ impl<'a, M: Model + std::fmt::Debug + Send + Sync + 'static> CodeAgentBuilder<'a
 impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for CodeAgent<M> {
     fn name(&self) -> &'static str {
         self.base_agent.name()
+    }
+    fn description(&self) -> &'static str {
+        self.base_agent.description()
     }
     fn get_max_steps(&self) -> usize {
         self.base_agent.get_max_steps()

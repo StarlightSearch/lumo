@@ -75,9 +75,10 @@ where
 {
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
+        name: Option<&str>,
         model: M,
         system_prompt: Option<&str>,
-        managed_agents: Option<HashMap<String, Box<dyn Agent>>>,
+        managed_agents: Vec<Box<dyn Agent>>,
         description: Option<&str>,
         max_steps: Option<usize>,
         mcp_clients: Vec<McpClient<S>>,
@@ -98,6 +99,7 @@ where
             None => "A multi-step agent that can solve tasks using a series of tools".to_string(),
         };
         let base_agent = MultiStepAgent::new(
+            name,
             model,
             vec![],
             Some(&initialize_system_prompt(system_prompt, tools.clone())?),
@@ -123,9 +125,10 @@ where
     S::Error: Into<Error>,
     S::Future: Send,
 {
+    name: Option<&'a str>,
     model: M,
     system_prompt: Option<&'a str>,
-    managed_agents: Option<HashMap<String, Box<dyn Agent>>>,
+    managed_agents: Vec<Box<dyn Agent>>,
     description: Option<&'a str>,
     max_steps: Option<usize>,
     planning_interval: Option<usize>,
@@ -143,9 +146,10 @@ where
 {
     pub fn new(model: M) -> Self {
         Self {
+            name: None,
             model,
             system_prompt: None,
-            managed_agents: None,
+            managed_agents: vec![],
             description: None,
             max_steps: None,
             planning_interval: None,
@@ -154,13 +158,17 @@ where
             logging_level: None,
         }
     }
+    pub fn with_name(mut self, name: Option<&'a str>) -> Self {
+        self.name = name;
+        self
+    }
     pub fn with_system_prompt(mut self, system_prompt: Option<&'a str>) -> Self {
         self.system_prompt = system_prompt;
         self
     }
     pub fn with_managed_agents(
         mut self,
-        managed_agents: Option<HashMap<String, Box<dyn Agent>>>,
+        managed_agents: Vec<Box<dyn Agent>>,
     ) -> Self {
         self.managed_agents = managed_agents;
         self
@@ -191,6 +199,7 @@ where
     }
     pub async fn build(self) -> Result<McpAgent<M, S>> {
         McpAgent::new(
+            self.name,
             self.model,
             self.system_prompt,
             self.managed_agents,
@@ -215,6 +224,9 @@ where
 {
     fn name(&self) -> &'static str {
         self.base_agent.name()
+    }
+    fn description(&self) -> &'static str {
+        self.base_agent.description()
     }
     fn set_task(&mut self, task: &str) {
         self.base_agent.set_task(task);
@@ -273,11 +285,13 @@ where
                 self.base_agent.input_messages = Some(agent_memory.clone());
                 step_log.agent_memory = Some(agent_memory.clone());
 
-                let mut tools = self.tools.iter()
+                let mut tools = self
+                    .tools
+                    .iter()
                     .cloned()
                     .map(ToolInfo::from)
                     .collect::<Vec<_>>();
-                
+
                 // Add final answer tool
                 let final_answer_tool = ToolInfo::from(Tool::new(
                     "final_answer",
@@ -296,13 +310,18 @@ where
                 tools.push(final_answer_tool);
 
                 tracing::debug!("Starting model inference with {} tools", tools.len());
-                let model_message = self.base_agent.model
+                let model_message = self
+                    .base_agent
+                    .model
                     .run(
                         self.base_agent.input_messages.as_ref().unwrap().clone(),
                         self.base_agent.history.clone(),
                         tools,
                         None,
-                        Some(HashMap::from([("stop".to_string(), vec!["Observation:".to_string()])])),
+                        Some(HashMap::from([(
+                            "stop".to_string(),
+                            vec!["Observation:".to_string()],
+                        )])),
                     )
                     .await?;
 
@@ -345,15 +364,26 @@ where
 
                             let mut futures = Vec::new();
                             for client in &self.mcp_clients {
-                                if client.list_tools(None).await?.tools.iter().any(|t| t.name == tool.function.name) {
-                                    futures.push(client.call_tool(&tool.function.name, tool.function.arguments.clone()));
+                                if client
+                                    .list_tools(None)
+                                    .await?
+                                    .tools
+                                    .iter()
+                                    .any(|t| t.name == tool.function.name)
+                                {
+                                    futures.push(client.call_tool(
+                                        &tool.function.name,
+                                        tool.function.arguments.clone(),
+                                    ));
                                 }
                             }
                             let results = join_all(futures).await;
                             for result in results {
                                 match result {
                                     Ok(observation) => {
-                                        let text = observation.content.iter()
+                                        let text = observation
+                                            .content
+                                            .iter()
                                             .map(|content| match content {
                                                 Content::Text(text) => text.text.clone(),
                                                 _ => "".to_string(),
@@ -373,7 +403,8 @@ where
                                         observations.push(formatted);
                                     }
                                     Err(e) => {
-                                        let error_msg = format!("Error from {}: {}", function_name, e);
+                                        let error_msg =
+                                            format!("Error from {}: {}", function_name, e);
                                         tracing::error!(
                                             tool = %function_name,
                                             error = %e,
@@ -388,7 +419,15 @@ where
                 }
                 step_log.observations = Some(observations);
 
-                if step_log.observations.clone().unwrap_or_default().join("\n").trim().len() > 30000 {
+                if step_log
+                    .observations
+                    .clone()
+                    .unwrap_or_default()
+                    .join("\n")
+                    .trim()
+                    .len()
+                    > 30000
+                {
                     tracing::debug!(
                         "Observation: {} \n ....This content has been truncated due to the 30000 character limit.....",
                         step_log.observations.clone().unwrap_or_default().join("\n").trim().chars().take(30000).collect::<String>()
