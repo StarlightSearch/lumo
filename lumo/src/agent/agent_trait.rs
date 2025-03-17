@@ -1,9 +1,11 @@
 use super::agent_step::Step;
 use crate::{
-    agent::agent_step::AgentStep, errors::AgentError, models::{
+    agent::agent_step::AgentStep,
+    errors::AgentError,
+    models::{
         model_traits::Model,
         types::{Message, MessageRole},
-    }
+    },
 };
 use anyhow::Result;
 use async_trait::async_trait;
@@ -16,7 +18,7 @@ use {futures::Stream, std::pin::Pin};
 pub type StreamResult<'a, T> = Result<Pin<Box<dyn Stream<Item = Result<T>> + 'a>>>;
 
 #[async_trait]
-pub trait Agent: Send + Sync{
+pub trait Agent: Send + Sync {
     fn name(&self) -> &'static str;
     fn get_max_steps(&self) -> usize;
     fn get_step_number(&self) -> usize;
@@ -114,7 +116,10 @@ pub trait Agent: Send + Sync{
         Ok(Some(response))
     }
 
-    fn write_inner_memory_from_logs(&mut self, summary_mode: Option<bool>) -> Result<Vec<Message>, AgentError> {
+    fn write_inner_memory_from_logs(
+        &mut self,
+        summary_mode: Option<bool>,
+    ) -> Result<Vec<Message>, AgentError> {
         let mut memory = Vec::new();
         let summary_mode = summary_mode.unwrap_or(false);
         for log in self.get_logs_mut() {
@@ -158,11 +163,8 @@ pub trait Agent: Send + Sync{
                             if let Some(tool_call) = &step_log.tool_call {
                                 tool_call
                                     .iter()
-                                    .map(|tool_call| {
-                                        format!(
-                                            "Call tool {} with args {}",
-                                            tool_call.function.name, tool_call.function.arguments
-                                        )
+                                    .map(|_| {
+                                        "I have provided the tool calls. You can provide the responses to the tool calls in the next message.".to_string()
                                     })
                                     .collect::<Vec<String>>()
                                     .join("\n")
@@ -233,11 +235,7 @@ pub trait Agent: Send + Sync{
 
 #[cfg(feature = "stream")]
 pub trait AgentStream: Agent {
-    fn stream_run<'a>(
-        &'a mut self,
-        task: &'a str,
-        reset: bool,
-    ) -> StreamResult<'a, Step> {
+    fn stream_run<'a>(&'a mut self, task: &'a str, reset: bool) -> StreamResult<'a, Step> {
         let system_prompt_step = Step::SystemPromptStep(self.get_system_prompt().to_string());
         if reset {
             self.get_logs_mut().clear();
@@ -307,4 +305,3 @@ pub trait AgentStream: Agent {
         Ok(Box::pin(stream))
     }
 }
-
