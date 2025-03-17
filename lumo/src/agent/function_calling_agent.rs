@@ -293,45 +293,64 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                 } else {
                     let tools_ref = &self.base_agent.tools;
                     let mut futures = vec![];
+                    let managed_agent_names = self
+                        .base_agent
+                        .managed_agents
+                        .iter()
+                        .map(|agent| agent.name())
+                        .collect::<Vec<_>>();
 
                     let managed_agent = self
                         .base_agent
                         .managed_agents
                         .iter_mut()
-                        .find(|agent| agent.name() == tools[0].function.name);
+                        .find(|agent| tools[0].function.name == agent.name());
 
                     if let Some(managed_agent) = managed_agent {
-                        let agent_call = managed_agent.run(&self.base_agent.task, true);
-                        futures.push(agent_call);
-                    }
-
-                    for tool in &tools {
-                        let function_name = tool.function.name.clone();
-                        match function_name.as_str() {
-                            "final_answer" => {
-                                let answer = tools_ref.call(&tool.function).await?;
-                                step_log.final_answer = Some(answer.clone());
-                                step_log.observations = Some(vec![answer.clone()]);
-                                tracing::info!(answer = %answer, "Final answer received");
-                                return Ok(Some(step_log.clone()));
+                        tracing::info!("Running managed agent: {}", managed_agent.name());
+                        let task = tools[0].function.arguments.get("task");
+                        if let Some(task) = task {
+                            let task_str = task.as_str();
+                            if let Some(task_str) = task_str {
+                                let agent_call = managed_agent.run(task_str, true);
+                                futures.push(agent_call);
+                            } else {
+                                step_log.observations = Some(vec!["Task should be a string.".to_string()]);
+                                tracing::error!("Task should be a string.");
                             }
+                        } else {
+                            step_log.observations = Some(vec!["No task provided to managed agent. Provide the task as an argument to the tool call.".to_string()]);
+                            tracing::error!("No task provided to managed agent");
+                        }
+                    } else {
+                        for tool in &tools {
+                            let function_name = tool.function.name.clone();
+                            match function_name.as_str() {
+                                "final_answer" => {
+                                    let answer = tools_ref.call(&tool.function).await?;
+                                    step_log.final_answer = Some(answer.clone());
+                                    step_log.observations = Some(vec![answer.clone()]);
+                                    tracing::info!(answer = %answer, "Final answer received");
+                                    return Ok(Some(step_log.clone()));
+                                }
 
-                            _ => {
-                                tracing::info!(
-                                    tool = %function_name,
-                                    args = ?tool.function.arguments,
-                                    "Executing tool call:"
-                                );
-
-                                let tool_call = tools_ref.call(&tool.function);
-                                futures.push(tool_call);
+                                _ => {
+                                    tracing::info!(
+                                        tool = %function_name,
+                                        args = ?tool.function.arguments,
+                                        "Executing tool call:"
+                                    );
+                                    if !managed_agent_names.contains(&function_name.as_str()) {
+                                        let tool_call = tools_ref.call(&tool.function);
+                                        futures.push(tool_call);
+                                    }
+                                }
                             }
                         }
                     }
                     let results = join_all(futures).await;
                     for result in results {
                         if let Ok(result) = result {
-                            tracing::info!("Tool call result: {}", result);
                             observations.push(result);
                         } else if let Err(e) = result {
                             tracing::error!("Error executing tool call: {}", e);
@@ -350,12 +369,12 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                     .len()
                     > 30000
                 {
-                    tracing::debug!(
+                    tracing::info!(
                         "Observation: {} \n ....This content has been truncated due to the 30000 character limit.....",
                         step_log.observations.clone().unwrap_or_default().join("\n").trim().chars().take(30000).collect::<String>()
                     );
                 } else {
-                    tracing::debug!(
+                    tracing::info!(
                         "Observation: {}",
                         step_log.observations.clone().unwrap_or_default().join("\n")
                     );
@@ -376,15 +395,8 @@ fn extract_action_json(text: &str) -> Option<String> {
         let end = action_part.rfind('}');
         if let (Some(start_idx), Some(end_idx)) = (start, end) {
             let json_str = action_part[start_idx..=end_idx].to_string();
-            // Clean the string and preserve only valid JSON characters
-            return Some(
-                json_str
-                    .chars()
-                    .filter(|c| !c.is_control() || *c == '\n')
-                    .collect::<String>()
-                    .trim()
-                    .to_string(),
-            );
+            // Clean and escape the string
+            return Some(json_str.replace('\n', "\\n").replace('\r', "\\r"));
         }
     }
 
@@ -393,15 +405,8 @@ fn extract_action_json(text: &str) -> Option<String> {
         if let Some(content) = tool_call_part.split("</tool_call>").next() {
             let trimmed = content.trim();
             if trimmed.starts_with('{') && trimmed.ends_with('}') {
-                // Clean the string and preserve only valid JSON characters
-                return Some(
-                    trimmed
-                        .chars()
-                        .filter(|c| !c.is_control() || *c == '\n')
-                        .collect::<String>()
-                        .trim()
-                        .to_string(),
-                );
+                // Clean and escape the string
+                return Some(trimmed.replace('\n', "\\n").replace('\r', "\\r"));
             }
         }
     }
@@ -438,8 +443,10 @@ mod tests {
     #[test]
     fn test_parse_response() {
         let response = r#"<tool_call>
-{"name": "final_answer", "arguments": {"answer": "This is the 
-final answer"}}
+{"name": "final_answer", "arguments": {"answer": "The current stock prices for Nvidia (NVDA) and Apple (AAPL) are as follows:
+
+- NVIDIA Corporation (NVDA): The last close price is $115.74 with a 52-week range of $75.61 - $153.13, and the market capitalization is $2.811T.
+- Apple Inc (AAPL): The stock quote is $227.56."}}
 </tool_call>"#;
         let json_str = parse_response(response).unwrap();
         println!(

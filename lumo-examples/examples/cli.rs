@@ -52,7 +52,7 @@ enum AgentWrapper {
 }
 
 impl AgentWrapper {
-    async fn run(&mut self, task: &str, reset: bool) -> Result<String> {
+    async fn run(&mut self, task: &str, reset: bool) -> Result<String, AgentError> {
         match self {
             AgentWrapper::FunctionCalling(agent) => agent.run(task, reset).await,
             AgentWrapper::Code(agent) => agent.run(task, reset).await,

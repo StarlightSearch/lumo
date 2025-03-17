@@ -62,7 +62,6 @@ Here is a list of the team members that you can call:"#.to_string();
     for agent in managed_agents.iter() {
         managed_agent_description.push_str(&format!("{}: {:?}\n", agent.name(), agent.description()));
     }
-    println!("{}", managed_agent_description);
     managed_agent_description
 }
 

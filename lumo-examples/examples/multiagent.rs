@@ -12,7 +12,7 @@ async fn main() {
         .with_base_url(Some("https://api.openai.com/v1/chat/completions"))
         .build()
         .unwrap();
-
+ 
 
     let coding_agent = FunctionCallingAgentBuilder::new(model.clone())
         .with_tools(vec![Box::new(PythonInterpreterTool::new())])
@@ -30,5 +30,5 @@ async fn main() {
         .build()
         .unwrap();
 
-    let _result = agent.run("Calculate the number of rs in strawberry.", true).await.unwrap();
+    let _result = agent.run("Find the stock price of Nvidia and the stock price of Apple and find the ratio of the two stock prices.", true).await.unwrap();
 }

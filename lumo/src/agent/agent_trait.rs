@@ -12,6 +12,7 @@ use log::info;
 #[cfg(feature = "stream")]
 use {futures::Stream, std::pin::Pin};
 
+#[cfg(feature = "stream")]
 pub type StreamResult<'a, T> = Result<Pin<Box<dyn Stream<Item = Result<T>> + 'a>>>;
 
 #[async_trait]

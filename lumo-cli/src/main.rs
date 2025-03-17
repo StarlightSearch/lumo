@@ -228,7 +228,7 @@ async fn main() -> Result<()> {
     // Ollama doesn't work well with the default system prompt. Its better to use a simple custom one or none at all.
     let system_prompt = match args.model_type {
         ModelType::Ollama => {
-            Some("You are a helpful assistant that can answer questions and help with tasks. Take multiple steps if needed until you have completed the task.")
+            Some("You are a helpful assistant that can answer questions and help with tasks. The tool call you write is an action: after the tool is executed, you will get the result of the tool call as an \"observation\". This Action/Observation can repeat N times, you should take several steps when needed. You can use the result of the previous action as input for the next action. You can call the next tool automatically")
         }
         // ModelType::Gemini => {
         //     Some("You are a helpful assistant that can answer questions and help with tasks.")
