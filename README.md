@@ -1,6 +1,6 @@
 # 🤖 lumo 
 
-This is a rust implementation of HF [smolagents](https://github.com/huggingface/smolagents) library. It provides a powerful autonomous agent framework written in Rust that solves complex tasks using tools and LLM models. 
+![](https://res.cloudinary.com/dltwftrgc/image/upload/c_fill,h_350,q_auto,r_30,w_1572/v1742300613/Gemini_Generated_Image_bg0xbfbg0xbfbg0x_ha3fs5.png)
 
 ---
 
@@ -65,11 +65,11 @@ Warning: Since there is no implementation of a Sandbox environment, be careful w
 #### Using Cargo
 
 ```bash
-cargo install smolagents-rs --all-features
+cargo install lumo --all-features
 ```
 
 ```bash
-smolagents-rs -t "Your task here"
+lumo -t "Your task here"
 ```
 You need to set the API key as an environment variable. Otherwise you can pass it as an argument.
 
@@ -77,10 +77,10 @@ You need to set the API key as an environment variable. Otherwise you can pass i
 
 ```bash
 # Pull the image
-docker pull your-username/smolagents-rs:latest
+docker pull your-username/lumo:latest
 
 # Run with your OpenAI API key
-docker run -e OPENAI_API_KEY=your-key-here smolagents-rs -t "What is the latest news about Rust programming?"
+docker run -e OPENAI_API_KEY=your-key-here lumo -t "What is the latest news about Rust programming?"
 ```
 
 ---
@@ -89,7 +89,7 @@ docker run -e OPENAI_API_KEY=your-key-here smolagents-rs -t "What is the latest 
 ## 🛠️ Usage
 
 ```bash
-smolagents-rs [OPTIONS] -t TASK
+lumo [OPTIONS] -t TASK
 
 Options:
   -t, --task <TASK>          The task to execute
@@ -109,13 +109,13 @@ Options:
 
 ```bash
 # Simple search task
-smolagents-rs -t "What are the main features of Rust 1.75?"
+lumo -t "What are the main features of Rust 1.75?"
 
 # Research with multiple tools
-smolagents-rs -t "Compare Rust and Go performance" -l duckduckgo,google-search,visit-website
+lumo -t "Compare Rust and Go performance" -l duckduckgo,google-search,visit-website
 
 # Stream output for real-time updates
-smolagents-rs -t "Analyze the latest crypto trends" -s
+lumo -t "Analyze the latest crypto trends" -s
 ```
 ---
 
