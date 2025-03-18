@@ -1,20 +1,20 @@
-# 🤖 lumo 
+
 
 ![](https://res.cloudinary.com/dltwftrgc/image/upload/c_fill,h_350,q_auto,r_30,w_1572/v1742300613/Gemini_Generated_Image_bg0xbfbg0xbfbg0x_ha3fs5.png)
 
 ---
 
+Agentic library to make high-performance CLI and server agents, with seamless integration with MCP.
+
+
 ## ✨ Features
 
-- 🧠 **Function-Calling Agent Architecture**: Implements the ReAct framework for advanced reasoning and action.
-- 🔍 **Built-in Tools**:
-  - Google Search
-  - DuckDuckGo Search
-  - Website Visit & Scraping
-- 🤝 **OpenAI Integration**: Works seamlessly with GPT models.
-- 🎯 **Task Execution**: Enables autonomous completion of complex tasks.
-- 🔄 **State Management**: Maintains persistent state across steps.
-- 📊 **Beautiful Logging**: Offers colored terminal output for easy debugging.
+-  **Function-Calling Agent Architecture**: Implements the ReAct framework for advanced reasoning and action.
+-  **Built-in Tools**:
+-  **OpenAI Integration**: Works seamlessly with GPT models.
+-  **Task Execution**: Enables autonomous completion of complex tasks.
+-  **State Management**: Maintains persistent state across steps.
+-  **Beautiful Logging**: Offers colored terminal output for easy debugging.
 
 ---
 
@@ -35,8 +35,8 @@ You can use models like Groq, TogetherAI using the same API as OpenAI. Just give
 
 - [x] Tool-Calling Agent
 - [x] CodeAgent
-- [ ] Planning Agent
-- [ ] Multi-Agent Support
+- [x] Planning Agent
+- [x] Multi-Agent Support
 
 The code agent is still in development, so there might be python code that is not yet supported and may cause errors. Try using the tool-calling agent for now.
 
@@ -92,15 +92,18 @@ docker run -e OPENAI_API_KEY=your-key-here lumo -t "What is the latest news abou
 lumo [OPTIONS] -t TASK
 
 Options:
-  -t, --task <TASK>          The task to execute
-  -a, --agent-type <TYPE>    Agent type. Options: function-calling, code [default: function-calling]
-  -l, --tools <TOOLS>        Comma-separated list of tools. Options: google-search, duckduckgo, visit-website, python-interpreter [default: duckduckgo,visit-website]
-  -m, --model <TYPE>         Model type [default: open-ai]
-  -k, --api-key <KEY>        LLM Provider API key (only required for OpenAI model)
-  --model-id <ID>            Model ID (e.g., "gpt-4" for OpenAI or "qwen2.5" for Ollama) [default: gpt-4o-mini]
-  -s, --stream               Enable streaming output
-  -b, --base-url <URL>       Base URL for the API [default: https://api.openai.com/v1/chat/completions]
-  -h, --help                 Print help
+  -a, --agent-type <AGENT_TYPE>  The type of agent to use [default: function-calling] [possible values:
+                                 function-calling, code, mcp]
+  -l, --tools <TOOLS>...         List of tools to use [default: duck-duck-go visit-website] [possible values:
+                                 duck-duck-go, visit-website, google-search-tool, python-interpreter]
+  -m, --model-type <MODEL_TYPE>  The type of model to use [default: open-ai] [possible values: open-ai, ollama]
+  -k, --api-key <API_KEY>        OpenAI API key (only required for OpenAI model)
+      --model-id <MODEL_ID>      Model ID (e.g., "gpt-4" for OpenAI or "qwen2.5" for Ollama) [default: gpt-4o-mini]
+  -p, --planning-interval        Number of steps to take to update the plan
+  -b, --base-url <BASE_URL>      Base URL for the API
+      --max-steps <MAX_STEPS>    Maximum number of steps to take [default: 10]
+  -h, --help                     Print help
+  -V, --version                  Print version
 ```
 
 ---
