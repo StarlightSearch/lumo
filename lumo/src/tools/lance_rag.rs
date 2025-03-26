@@ -67,7 +67,7 @@ impl LanceRAGTool {
 
         let query_point: Vec<f32> = (self.embedding_fn)(query.to_string()).await;
 
-        let filter = format!("workspace_name == '{}'", "Onedrive");
+        let filter = format!("workspace_name == '{}'", "Zotero");
 
         // Get vector search results with filter
         let vector_search_result: Vec<RecordBatch> = self

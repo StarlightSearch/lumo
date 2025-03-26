@@ -192,7 +192,7 @@ async fn create_tool(tool_type: &ToolType) -> Box<dyn AsyncTool> {
                             .to_dense().unwrap()
                     }
                 })),
-                5
+                10
             ).await.unwrap())
         }
     }
