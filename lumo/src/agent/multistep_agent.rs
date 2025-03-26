@@ -56,7 +56,7 @@ pub fn format_prompt_with_tools(tools: Vec<ToolInfo>, prompt_template: &str) -> 
 pub fn show_agents_description(managed_agents: &Vec<Box<dyn Agent>>) -> String {
     let mut managed_agent_description = r#"You can also give requests to team members.
 Calling a team member works the same as for calling a tool: simply, the only argument you can give in the call is 'request', a long string explaining your request.
-Given that this team member is a real human, you should be very verbose in your request.
+Given that this team member is a real human, you should be very verbose in your request. Only call one team member at a time.
 Here is a list of the team members that you can call:"#.to_string();
 
     for agent in managed_agents.iter() {

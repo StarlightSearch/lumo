@@ -1,6 +1,10 @@
-use lumo::agent::{Agent, FunctionCallingAgentBuilder};
+use std::sync::Arc;
+
+use futures::StreamExt;
+use lumo::agent::{Agent, AgentStream, FunctionCallingAgentBuilder, Step};
 use lumo::models::openai::OpenAIServerModelBuilder;
-use lumo::tools::{AsyncTool, DuckDuckGoSearchTool, PythonInterpreterTool, VisitWebsiteTool};
+use lumo::tools::{AsyncTool, DuckDuckGoSearchTool, LanceRAGTool, PythonInterpreterTool, VisitWebsiteTool};
+use embed_anything::embeddings::embed::EmbedderBuilder;
 
 #[tokio::main]
 async fn main() {
@@ -21,14 +25,69 @@ async fn main() {
         .with_description(Some("A coding agent that can write code in python. Use this to do calculations and other complex tasks."))
         .build()
         .unwrap();
+    let dense_model = Arc::new(
+        EmbedderBuilder::new()
+            .model_architecture("jina")
+            .model_id(Some("jinaai/jina-embeddings-v2-small-en"))
+            .path_in_repo(Some("model.onnx"))
+            .from_pretrained_onnx()
+            .unwrap(),
+    );
+    let retrieval_tool = Box::new(LanceRAGTool::new(
+        "C:\\Users\\arbal\\AppData\\Roaming\\com.starlight.starlight",
+        "test",
+
+        Box::new(move |text: String| Box::pin({
+            let model = Arc::clone(&dense_model);
+            async move {
+                model.embed_query(&[text.as_str()], None)
+                    .await
+                    .unwrap()
+                    .first()
+                    .unwrap()
+                    .embedding
+                    .to_dense().unwrap()
+            }
+        })),
+        10
+    ).await.unwrap());
+    
+    let retrieval_agent = FunctionCallingAgentBuilder::new(model.clone())
+    .with_tools(vec![retrieval_tool])
+    .with_name(Some("retrieval_agent"))
+    .with_logging_level(Some(log::LevelFilter::Info))
+    .with_description(Some("A retrieval agent that can search for information in a database. Use this to find information about the user's query. This contains information related to deep learning, EEG analysis and other related topics."))
+    .build()
+    .unwrap();
     let mut agent = FunctionCallingAgentBuilder::new(model)
         .with_tools(tools)
         .with_max_steps(Some(10))
         .with_logging_level(Some(log::LevelFilter::Info))
         .with_planning_interval(Some(1))
-        .with_managed_agents(vec![Box::new(coding_agent) as Box<dyn Agent>])
+        .with_managed_agents(vec![Box::new(coding_agent) as Box<dyn Agent>, Box::new(retrieval_agent) as Box<dyn Agent>])
         .build()
         .unwrap();
 
-    let _result = agent.run("Find the stock price of Nvidia and the stock price of Apple and find the ratio of the two stock prices.", true).await.unwrap();
+    let mut result = agent.stream_run("What is EEG classification. And what are the different methods used for EEG classification.", true).unwrap();
+    let mut file = std::fs::File::create("result.txt").unwrap();
+    while let Some(step) = result.next().await {
+        match step {
+            Ok(Step::PlanningStep(plan, facts)) => {
+                println!("Plan: {}", plan);
+                println!("Facts: {}", facts);
+            }
+            Ok(Step::ActionStep(action_step)) => {
+                serde_json::to_writer_pretty(&mut file, &action_step).unwrap();
+
+                println!("Action: {}", action_step);
+            }
+            _ => {
+                println!("Step: {:?}", step);
+            }
+            Err(e) => {
+                println!("Error: {}", e);
+            }
+        }
+    }
 }
+

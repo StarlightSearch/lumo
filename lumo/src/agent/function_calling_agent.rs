@@ -308,19 +308,25 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
 
                     if let Some(managed_agent) = managed_agent {
                         tracing::info!("Running managed agent: {}", managed_agent.name());
-                        let task = tools[0].function.arguments.get("task");
-                        if let Some(task) = task {
-                            let task_str = task.as_str();
-                            if let Some(task_str) = task_str {
-                                let agent_call = managed_agent.run(task_str, true);
-                                futures.push(agent_call);
+                        let mut tasks = Vec::new();
+                        for tool in &tools {
+                            let task = tool.function.arguments.get("task");
+                            if let Some(task) = task {
+                                if let Some(task_str) = task.as_str() {
+                                    tasks.push(task_str.to_string());
+                                } else {
+                                    step_log.observations = Some(vec!["Task should be a string.".to_string()]);
+                                    tracing::error!("Task should be a string.");
+                                }
                             } else {
-                                step_log.observations = Some(vec!["Task should be a string.".to_string()]);
-                                tracing::error!("Task should be a string.");
+                                step_log.observations = Some(vec!["No task provided to managed agent. Provide the task as an argument to the tool call.".to_string()]);
+                                tracing::error!("No task provided to managed agent");
                             }
-                        } else {
-                            step_log.observations = Some(vec!["No task provided to managed agent. Provide the task as an argument to the tool call.".to_string()]);
-                            tracing::error!("No task provided to managed agent");
+                        }
+                        for task in tasks {
+                            let agent_call = managed_agent.run(&task, true);
+                            let result = agent_call.await?;
+                            observations.push(result);
                         }
                     } else {
                         for tool in &tools {
