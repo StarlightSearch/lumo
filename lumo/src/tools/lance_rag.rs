@@ -30,7 +30,7 @@ pub struct SearchResponse {
 #[derive(Deserialize, JsonSchema)]
 #[schemars(title = "LanceRAGToolParams")]
 pub struct LanceRAGToolParams {
-    #[schemars(description = "The query to search for")]
+    #[schemars(description = "The query to search for.")]
     query: String,
 }
 
@@ -53,8 +53,8 @@ impl LanceRAGTool {
         let table = db.open_table(table_name).execute().await?;
         Ok(LanceRAGTool {
             tool: BaseTool{
-                name: "lance_rag",
-                description: "Search for similar documents in a LanceDB table. Use this tool when you need to search documents.",
+                name: "file_search",
+                description: "Search for documents in a LanceDB table. Use this tool when you need to search documents and get information.",
             },
             table,
             embedding_fn: Arc::from(embedding_fn),
@@ -153,10 +153,10 @@ impl Tool for LanceRAGTool {
             .enumerate()
             .map(|(i, r)| {
                 format!(
-                    " -------- \nContext {} \nFile Name: {} \nPage Number: {} \nText: {} --------",
+                    " -------- \nContext {} \nText: {} --------",
                     i + 1,
-                    r.file_name,
-                    r.page_number.unwrap_or("N/A".to_string()),
+                    // r.file_name,
+                    // r.page_number.unwrap_or("N/A".to_string()),
                     r.text
                 )
             })

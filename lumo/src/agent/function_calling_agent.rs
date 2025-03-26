@@ -1,19 +1,21 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use log::info;
-use std::collections::HashMap;
 use futures::future::join_all;
+use serde_json::json;
+use std::collections::HashMap;
 
 use crate::{
     agent::Agent,
-    errors::{AgentError, AgentExecutionError},
+    errors::AgentError,
     models::{
         model_traits::Model,
-        openai::{FunctionCall, ToolCall}, types::Message,
+        openai::{FunctionCall, ToolCall},
+        types::Message,
     },
     prompts::TOOL_CALLING_SYSTEM_PROMPT,
-    tools::{AsyncTool, ToolGroup},
+    tools::{AsyncTool, ToolFunctionInfo, ToolGroup, ToolInfo, ToolType},
 };
+use tracing::{instrument, Span};
 
 use super::{agent_step::Step, multistep_agent::MultiStepAgent, AgentStep};
 
@@ -27,13 +29,14 @@ where
     base_agent: MultiStepAgent<M>,
 }
 
-impl<M: Model + std::fmt::Debug + Send + Sync + 'static> FunctionCallingAgent<M> {
+impl<M: Model + Send + Sync + 'static> FunctionCallingAgent<M> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
+        name: Option<&str>,
         model: M,
         tools: Vec<Box<dyn AsyncTool>>,
         system_prompt: Option<&str>,
-        managed_agents: Option<HashMap<String, Box<dyn Agent>>>,
+        managed_agents: Vec<Box<dyn Agent>>,
         description: Option<&str>,
         max_steps: Option<usize>,
         planning_interval: Option<usize>,
@@ -42,6 +45,7 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> FunctionCallingAgent<M>
     ) -> Result<Self> {
         let system_prompt = system_prompt.unwrap_or(TOOL_CALLING_SYSTEM_PROMPT);
         let base_agent = MultiStepAgent::new(
+            name,
             model,
             tools,
             Some(system_prompt),
@@ -60,10 +64,11 @@ pub struct FunctionCallingAgentBuilder<'a, M>
 where
     M: Model + std::fmt::Debug + Send + Sync + 'static,
 {
+    name: Option<&'a str>,
     model: M,
     tools: Vec<Box<dyn AsyncTool>>,
     system_prompt: Option<&'a str>,
-    managed_agents: Option<HashMap<String, Box<dyn Agent>>>,
+    managed_agents: Vec<Box<dyn Agent>>,
     description: Option<&'a str>,
     max_steps: Option<usize>,
     planning_interval: Option<usize>,
@@ -73,7 +78,22 @@ where
 
 impl<'a, M: Model + std::fmt::Debug + Send + Sync + 'static> FunctionCallingAgentBuilder<'a, M> {
     pub fn new(model: M) -> Self {
-        Self { model, tools: vec![], system_prompt: None, managed_agents: None, description: None, max_steps: None, planning_interval: None, history: None, logging_level: None }
+        Self {
+            name: None,
+            model,
+            tools: vec![],
+            system_prompt: None,
+            managed_agents: vec![],
+            description: None,
+            max_steps: None,
+            planning_interval: None,
+            history: None,
+            logging_level: None,
+        }
+    }
+    pub fn with_name(mut self, name: Option<&'a str>) -> Self {
+        self.name = name;
+        self
     }
     pub fn with_tools(mut self, tools: Vec<Box<dyn AsyncTool>>) -> Self {
         self.tools = tools;
@@ -83,7 +103,7 @@ impl<'a, M: Model + std::fmt::Debug + Send + Sync + 'static> FunctionCallingAgen
         self.system_prompt = system_prompt;
         self
     }
-    pub fn with_managed_agents(mut self, managed_agents: Option<HashMap<String, Box<dyn Agent>>>) -> Self {
+    pub fn with_managed_agents(mut self, managed_agents: Vec<Box<dyn Agent>>) -> Self {
         self.managed_agents = managed_agents;
         self
     }
@@ -108,7 +128,18 @@ impl<'a, M: Model + std::fmt::Debug + Send + Sync + 'static> FunctionCallingAgen
         self
     }
     pub fn build(self) -> Result<FunctionCallingAgent<M>> {
-        FunctionCallingAgent::new(self.model, self.tools, self.system_prompt, self.managed_agents, self.description, self.max_steps, self.planning_interval, self.history, self.logging_level)
+        FunctionCallingAgent::new(
+            self.name,
+            self.model,
+            self.tools,
+            self.system_prompt,
+            self.managed_agents,
+            self.description,
+            self.max_steps,
+            self.planning_interval,
+            self.history,
+            self.logging_level,
+        )
     }
 }
 
@@ -116,6 +147,9 @@ impl<'a, M: Model + std::fmt::Debug + Send + Sync + 'static> FunctionCallingAgen
 impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCallingAgent<M> {
     fn name(&self) -> &'static str {
         self.base_agent.name()
+    }
+    fn description(&self) -> &'static str {
+        self.base_agent.description()
     }
     fn set_task(&mut self, task: &str) {
         self.base_agent.set_task(task);
@@ -150,25 +184,62 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
     fn set_planning_interval(&mut self, planning_interval: Option<usize>) {
         self.base_agent.set_planning_interval(planning_interval);
     }
-    async fn planning_step(&mut self, task: &str, is_first_step: bool, step: usize) -> Result<Option<Step>> {
-        self.base_agent.planning_step(task, is_first_step, step).await
+    async fn planning_step(
+        &mut self,
+        task: &str,
+        is_first_step: bool,
+        step: usize,
+    ) -> Result<Option<Step>> {
+        self.base_agent
+            .planning_step(task, is_first_step, step)
+            .await
     }
 
     /// Perform one step in the ReAct framework: the agent thinks, acts, and observes the result.
     ///
     /// Returns None if the step is not final.
-    async fn step(&mut self, log_entry: &mut Step) -> Result<Option<AgentStep>> {
+    #[instrument(skip(self, log_entry), fields(step = ?self.get_step_number()))]
+    async fn step(&mut self, log_entry: &mut Step) -> Result<Option<AgentStep>, AgentError> {
         match log_entry {
             Step::ActionStep(step_log) => {
+                let span = Span::current();
+                span.record("step_type", "action");
+
                 let agent_memory = self.base_agent.write_inner_memory_from_logs(None)?;
                 self.base_agent.input_messages = Some(agent_memory.clone());
                 step_log.agent_memory = Some(agent_memory.clone());
-                let tools = self
+
+                let mut tools = self
                     .base_agent
                     .tools
                     .iter()
                     .map(|tool| tool.tool_info())
                     .collect::<Vec<_>>();
+                let managed_agents = self
+                    .base_agent
+                    .managed_agents
+                    .iter()
+                    .map(|agent| ToolInfo {
+                        tool_type: ToolType::Function,
+                        function: ToolFunctionInfo {
+                            name: agent.name(),
+                            description: agent.description(),
+                            parameters: json!({
+                                "type": "object",
+                                "properties": {
+                                    "task": {
+                                        "type": "string",
+                                        "description": "The task to perform"
+                                    }
+                                }
+                            }),
+                        },
+                    })
+                    .collect::<Vec<_>>();
+
+                tools.extend(managed_agents);
+
+                tracing::debug!("Starting model inference with {} tools", tools.len());
                 let model_message = self
                     .base_agent
                     .model
@@ -183,10 +254,17 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                         )])),
                     )
                     .await?;
+
                 step_log.llm_output = Some(model_message.get_response().unwrap_or_default());
                 let mut observations = Vec::new();
                 let mut tools = model_message.get_tools_used()?;
                 step_log.tool_call = Some(tools.clone());
+
+                tracing::info!(
+                    step = self.get_step_number(),
+                    tool_calls = serde_json::to_string_pretty(&tools).unwrap_or_default(),
+                    "Agent selected tools"
+                );
 
                 if let Ok(response) = model_message.get_response() {
                     if !response.trim().is_empty() {
@@ -195,15 +273,12 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                                 id: Some(format!("call_{}", nanoid::nanoid!())),
                                 call_type: Some("function".to_string()),
                                 function: FunctionCall {
-                                    name: action["name"]
-                                        .as_str()
-                                        .unwrap_or_default()
-                                        .to_string(),
+                                    name: action["name"].as_str().unwrap_or_default().to_string(),
                                     arguments: action["arguments"].clone(),
                                 },
                             }];
                             step_log.tool_call = Some(tools.clone());
-                        } 
+                        }
                     }
                     if tools.is_empty() {
                         self.base_agent.write_inner_memory_from_logs(None)?;
@@ -217,54 +292,69 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                     observations = vec!["No tool call was made. If this is the final answer, use the final_answer tool to return your answer.".to_string()];
                 } else {
                     let tools_ref = &self.base_agent.tools;
-                    let futures = tools.into_iter().map(|tool| async move {
-                        let function_name = tool.function.name.clone();
-                        match function_name.as_str() {
-                            "final_answer" => {
-                                let answer = tools_ref.call(&tool.function).await?;
-                                Ok::<_, AgentExecutionError>((true, function_name, answer))
+                    let mut futures = vec![];
+                    let managed_agent_names = self
+                        .base_agent
+                        .managed_agents
+                        .iter()
+                        .map(|agent| agent.name())
+                        .collect::<Vec<_>>();
+
+                    let managed_agent = self
+                        .base_agent
+                        .managed_agents
+                        .iter_mut()
+                        .find(|agent| tools[0].function.name == agent.name());
+
+                    if let Some(managed_agent) = managed_agent {
+                        tracing::info!("Running managed agent: {}", managed_agent.name());
+                        let task = tools[0].function.arguments.get("task");
+                        if let Some(task) = task {
+                            let task_str = task.as_str();
+                            if let Some(task_str) = task_str {
+                                let agent_call = managed_agent.run(task_str, true);
+                                futures.push(agent_call);
+                            } else {
+                                step_log.observations = Some(vec!["Task should be a string.".to_string()]);
+                                tracing::error!("Task should be a string.");
                             }
-                            _ => {
-                                info!(
-                                    "Executing tool call: {} with arguments: {:?}",
-                                    function_name, tool.function.arguments
-                                );
-                                let observation = tools_ref.call(&tool.function).await;
-                                match observation {
-                                    Ok(observation) => {
-                                        let formatted = format!(
-                                            "Observation from {}: {}",
-                                            function_name,
-                                            observation.chars().take(30000).collect::<String>()
-                                        );
-                                        Ok((false, function_name, formatted))
+                        } else {
+                            step_log.observations = Some(vec!["No task provided to managed agent. Provide the task as an argument to the tool call.".to_string()]);
+                            tracing::error!("No task provided to managed agent");
+                        }
+                    } else {
+                        for tool in &tools {
+                            let function_name = tool.function.name.clone();
+                            match function_name.as_str() {
+                                "final_answer" => {
+                                    let answer = tools_ref.call(&tool.function).await?;
+                                    step_log.final_answer = Some(answer.clone());
+                                    step_log.observations = Some(vec![answer.clone()]);
+                                    tracing::info!(answer = %answer, "Final answer received");
+                                    return Ok(Some(step_log.clone()));
+                                }
+
+                                _ => {
+                                    tracing::info!(
+                                        tool = %function_name,
+                                        args = ?tool.function.arguments,
+                                        "Executing tool call:"
+                                    );
+                                    if !managed_agent_names.contains(&function_name.as_str()) {
+                                        let tool_call = tools_ref.call(&tool.function);
+                                        futures.push(tool_call);
                                     }
-                                    Err(e) => Ok((false, function_name, e.to_string())),
                                 }
                             }
                         }
-                    });
-
+                    }
                     let results = join_all(futures).await;
                     for result in results {
-                        match result {
-                            Ok((is_final, name, output)) => {
-                                if is_final {
-                                    step_log.final_answer = Some(output.clone());
-                                    step_log.observations = Some(vec![output.clone()]);
-                                    return Ok(Some(step_log.clone()));
-                                } else {
-                                    let output_clone = output.clone();
-                                    observations.push(output);
-                                    if output_clone.starts_with("Error:") {
-                                        info!("Error in {}: {}", name, output_clone);
-                                    }
-                                }
-                            }
-                            Err(e) => {
-                                observations.push(e.to_string());
-                                info!("Error: {}", e);
-                            }
+                        if let Ok(result) = result {
+                            observations.push(result);
+                        } else if let Err(e) = result {
+                            tracing::error!("Error executing tool call: {}", e);
+                            observations.push(e.to_string());
                         }
                     }
                 }
@@ -279,12 +369,12 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                     .len()
                     > 30000
                 {
-                    info!(
+                    tracing::info!(
                         "Observation: {} \n ....This content has been truncated due to the 30000 character limit.....",
                         step_log.observations.clone().unwrap_or_default().join("\n").trim().chars().take(30000).collect::<String>()
                     );
                 } else {
-                    info!(
+                    tracing::info!(
                         "Observation: {}",
                         step_log.observations.clone().unwrap_or_default().join("\n")
                     );
@@ -305,32 +395,22 @@ fn extract_action_json(text: &str) -> Option<String> {
         let end = action_part.rfind('}');
         if let (Some(start_idx), Some(end_idx)) = (start, end) {
             let json_str = action_part[start_idx..=end_idx].to_string();
-            // Clean the string and preserve only valid JSON characters
-            return Some(json_str
-                .chars()
-                .filter(|c| !c.is_control() || *c == '\n')
-                .collect::<String>()
-                .trim()
-                .to_string());
+            // Clean and escape the string
+            return Some(json_str.replace('\n', "\\n").replace('\r', "\\r"));
         }
     }
-    
+
     // If no Action: format found, try extracting from tool_call tags
     if let Some(tool_call_part) = text.split("<tool_call>").nth(1) {
         if let Some(content) = tool_call_part.split("</tool_call>").next() {
             let trimmed = content.trim();
             if trimmed.starts_with('{') && trimmed.ends_with('}') {
-                // Clean the string and preserve only valid JSON characters
-                return Some(trimmed
-                    .chars()
-                    .filter(|c| !c.is_control() || *c == '\n')
-                    .collect::<String>()
-                    .trim()
-                    .to_string());
+                // Clean and escape the string
+                return Some(trimmed.replace('\n', "\\n").replace('\r', "\\r"));
             }
         }
     }
-    
+
     None
 }
 // Example usage in your parse_response function:
@@ -345,12 +425,12 @@ pub fn parse_response(response: &str) -> Result<serde_json::Value, AgentError> {
 }
 
 #[cfg(feature = "stream")]
-impl<M: Model + std::fmt::Debug + Send + Sync + 'static> AgentStream for FunctionCallingAgent<M>{}
+impl<M: Model + std::fmt::Debug + Send + Sync + 'static> AgentStream for FunctionCallingAgent<M> {}
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    
+
     #[test]
     fn test_extract_action_json() {
         let response = r#"<tool_call>
@@ -363,12 +443,16 @@ mod tests {
     #[test]
     fn test_parse_response() {
         let response = r#"<tool_call>
-{"name": "final_answer", "arguments": {"answer": "This is the 
-final answer"}}
+{"name": "final_answer", "arguments": {"answer": "The current stock prices for Nvidia (NVDA) and Apple (AAPL) are as follows:
+
+- NVIDIA Corporation (NVDA): The last close price is $115.74 with a 52-week range of $75.61 - $153.13, and the market capitalization is $2.811T.
+- Apple Inc (AAPL): The stock quote is $227.56."}}
 </tool_call>"#;
         let json_str = parse_response(response).unwrap();
-        println!("json_str: {}", serde_json::to_string_pretty(&json_str).unwrap());
+        println!(
+            "json_str: {}",
+            serde_json::to_string_pretty(&json_str).unwrap()
+        );
         // assert_eq!(json_str, serde_json::json!({"name": "final_answer", "arguments": {"answer": "This is the final answer"}}));
     }
-    
 }

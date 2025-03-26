@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use crate::errors::AgentError;
 use crate::logger::LOGGER;
 use crate::models::model_traits::Model;
 use crate::models::types::{Message, MessageRole};
@@ -52,28 +53,27 @@ pub fn format_prompt_with_tools(tools: Vec<ToolInfo>, prompt_template: &str) -> 
     prompt
 }
 
-pub fn show_agents_description(managed_agents: &HashMap<String, Box<dyn Agent>>) -> String {
+pub fn show_agents_description(managed_agents: &Vec<Box<dyn Agent>>) -> String {
     let mut managed_agent_description = r#"You can also give requests to team members.
 Calling a team member works the same as for calling a tool: simply, the only argument you can give in the call is 'request', a long string explaining your request.
 Given that this team member is a real human, you should be very verbose in your request.
 Here is a list of the team members that you can call:"#.to_string();
 
-    for (name, agent) in managed_agents.iter() {
-        managed_agent_description.push_str(&format!("{}: {:?}\n", name, agent.description()));
+    for agent in managed_agents.iter() {
+        managed_agent_description.push_str(&format!("{}: {:?}\n", agent.name(), agent.description()));
     }
-
     managed_agent_description
 }
 
 pub fn format_prompt_with_managed_agent_description(
     prompt_template: String,
-    managed_agents: &HashMap<String, Box<dyn Agent>>,
+    managed_agents: &Vec<Box<dyn Agent>>,
     agent_descriptions_placeholder: Option<&str>,
 ) -> Result<String> {
     let agent_descriptions_placeholder =
         agent_descriptions_placeholder.unwrap_or("{{managed_agents_descriptions}}");
-
-    if managed_agents.keys().len() > 0 {
+    
+    if managed_agents.len() > 0 {
         Ok(prompt_template.replace(
             agent_descriptions_placeholder,
             &show_agents_description(managed_agents),
@@ -91,8 +91,8 @@ where
     pub tools: Vec<Box<dyn AsyncTool>>,
     pub system_prompt_template: String,
     pub name: &'static str,
-    pub managed_agents: Option<HashMap<String, Box<dyn Agent>>>,
-    pub description: String,
+    pub managed_agents: Vec<Box<dyn Agent>>,
+    pub description: &'static str,
     pub max_steps: usize,
     pub step_number: usize,
     pub task: String,
@@ -106,7 +106,7 @@ where
 #[async_trait]
 impl<M> Agent for MultiStepAgent<M>
 where
-    M: Model + std::fmt::Debug + Send + Sync + 'static,
+    M: Model + Send + Sync + 'static,
 {
     fn name(&self) -> &'static str {
         self.name
@@ -141,8 +141,8 @@ where
     fn get_logs_mut(&mut self) -> &mut Vec<Step> {
         &mut self.logs
     }
-    fn description(&self) -> String {
-        self.description.clone()
+    fn description(&self) -> &'static str {
+        &self.description
     }
     fn model(&self) -> &dyn Model {
         &self.model
@@ -159,21 +159,22 @@ where
     /// Perform one step in the ReAct framework: the agent thinks, acts, and observes the result.
     ///
     /// Returns None if the step is not final.
-    async fn step(&mut self, _: &mut Step) -> Result<Option<AgentStep>> {
+    async fn step(&mut self, _: &mut Step) -> Result<Option<AgentStep>, AgentError> {
         todo!()
     }
 }
 
 impl<M> MultiStepAgent<M>
 where
-    M: Model + Send + Sync + std::fmt::Debug + 'static,
+    M: Model + Send + Sync + 'static,
 {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
+        name: Option<&str>,
         model: M,
         mut tools: Vec<Box<dyn AsyncTool>>,
         system_prompt: Option<&str>,
-        managed_agents: Option<HashMap<String, Box<dyn Agent>>>,
+        managed_agents: Vec<Box<dyn Agent>>,
         description: Option<&str>,
         max_steps: Option<usize>,
         planning_interval: Option<usize>,
@@ -185,7 +186,10 @@ where
             log::set_max_level(logging_level.unwrap_or(log::LevelFilter::Error));
         });
 
-        let name = "MultiStepAgent";
+        let name: &'static str = match name {
+            Some(n) => Box::leak(n.to_string().into_boxed_str()),
+            None => "MultiStepAgent",
+        };
 
         let system_prompt_template = match system_prompt {
             Some(prompt) => prompt.to_string(),
@@ -199,13 +203,14 @@ where
         let final_answer_tool = FinalAnswerTool::new();
         tools.push(Box::new(final_answer_tool));
 
+
         let mut agent = MultiStepAgent {
             model,
             tools,
             system_prompt_template,
             name,
             managed_agents,
-            description,
+            description: Box::leak(description.into_boxed_str()),
             max_steps: max_steps.unwrap_or(10),
             step_number: 0,
             task: "".to_string(),
@@ -223,22 +228,11 @@ where
     fn initialize_system_prompt(&mut self) -> Result<String> {
         let tools = self.tools.tool_info();
         self.system_prompt_template = format_prompt_with_tools(tools, &self.system_prompt_template);
-        match &self.managed_agents {
-            Some(managed_agents) => {
-                self.system_prompt_template = format_prompt_with_managed_agent_description(
-                    self.system_prompt_template.clone(),
-                    managed_agents,
-                    None,
-                )?;
-            }
-            None => {
-                self.system_prompt_template = format_prompt_with_managed_agent_description(
-                    self.system_prompt_template.clone(),
-                    &HashMap::new(),
-                    None,
-                )?;
-            }
-        }
+        self.system_prompt_template = format_prompt_with_managed_agent_description(
+            self.system_prompt_template.clone(),
+            &self.managed_agents,
+            None,
+        )?;
         self.system_prompt_template = self
             .system_prompt_template
             .replace("{{current_time}}", &chrono::Local::now().to_string());
@@ -308,9 +302,7 @@ where
                 content: user_prompt_plan(
                     task,
                     &tool_descriptions,
-                    &show_agents_description(
-                        self.managed_agents.as_ref().unwrap_or(&HashMap::new()),
-                    ),
+                    &show_agents_description(&self.managed_agents),
                     &answer_facts,
                 ),
                 tool_call_id: None,

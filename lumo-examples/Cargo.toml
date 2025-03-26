@@ -1,6 +1,6 @@
 [package]
 name = "lumo-examples"
-version = "0.1.3"
+version.workspace = true
 edition = "2021"
 description = "The CLI for running Lumo Agent"
 license = "Apache-2.0"
@@ -27,3 +27,4 @@ bat.workspace = true
 log.workspace = true
 
 embed_anything = { git = "https://github.com/StarlightSearch/EmbedAnything.git", features = ["ort"], optional = true }
+

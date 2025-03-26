@@ -139,7 +139,7 @@ impl ModelResponse for OpenAIResponse {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct OpenAIServerModel {
     pub base_url: String,
     pub model_id: String,

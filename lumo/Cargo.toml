@@ -25,6 +25,7 @@ regex.workspace = true
 async-trait.workspace = true
 futures.workspace = true
 nanoid.workspace = true
+tracing = {workspace = true}
 
 lancedb = {version = "0.18.1", default-features=false,  optional = true}
 embed_anything = { git = "https://github.com/StarlightSearch/EmbedAnything.git", features = ["ort"], optional = true }

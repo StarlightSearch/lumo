@@ -1,5 +1,5 @@
 [workspace.package]
-version = "0.1.3"
+version = "0.1.1"
 edition = "2021"
 description = "A rust port of the the HuggingFace smolagents library. Build LLM agents with tools and code execution."
 license = "Apache-2.0"
@@ -36,7 +36,9 @@ async-stream = "0.3.6"
 rustyline = "15.0.0"
 serde_yaml = "0.9.33"
 directories = "6.0.0"
-strip-ansi-escapes = "0.2.0"
+tracing = "0.1.41"
+tracing-subscriber = "0.3.19"
+console = "0.15"
 lumo = {path = "lumo"}
 
 

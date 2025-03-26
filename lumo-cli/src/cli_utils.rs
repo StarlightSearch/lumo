@@ -3,10 +3,68 @@ use bat::PrettyPrinter;
 use colored::*;
 use directories::UserDirs;
 use lumo::agent::Step;
+use lumo::models::openai::ToolCall;
 use rustyline::error::ReadlineError;
 use rustyline::history::FileHistory;
 use rustyline::{Config, Editor};
 use std::path::PathBuf;
+use tracing::field::Visit;
+use tracing::Subscriber;
+use tracing_subscriber::fmt::format::Writer;
+use tracing_subscriber::fmt::{self, FormatEvent, FormatFields};
+use tracing_subscriber::registry::LookupSpan;
+
+pub struct ToolCallsFormatter;
+
+impl<S, N> FormatEvent<S, N> for ToolCallsFormatter
+where
+    S: Subscriber + for<'a> LookupSpan<'a>,
+    N: for<'a> FormatFields<'a> + 'static,
+{
+    fn format_event(
+        &self,
+        _ctx: &fmt::FmtContext<'_, S, N>,
+        _: Writer<'_>,
+        event: &tracing::Event<'_>,
+    ) -> std::fmt::Result {
+        struct ToolCallsVisitor(Option<Vec<ToolCall>>, Option<u64>);
+
+        impl Visit for ToolCallsVisitor {
+            fn record_debug(&mut self, _: &tracing::field::Field, _: &dyn std::fmt::Debug) {}
+            fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
+                
+                if field.name() == "tool_calls" {
+                    self.0 = Some(serde_json::from_str::<Vec<ToolCall>>(&value).unwrap_or_default());
+                }
+            }
+            fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
+                if field.name() == "step" {
+                    self.1 = Some(value);
+                }
+            }
+        }
+
+        let mut visitor = ToolCallsVisitor(None, None);
+        event.record(&mut visitor);
+
+
+        if let Some(step) = visitor.1 {
+            println!("\n{} {}", "📍 Step:".bright_cyan().bold(), step);
+        } 
+
+        if let Some(tool_calls) = visitor.0 {
+            if !tool_calls.is_empty() {
+                if tool_calls[0].function.name != "python_interpreter" {
+                    CliPrinter::print_regular_tool_call(&tool_calls);
+                } else {
+                    CliPrinter::print_python_tool_call(&tool_calls);
+                }
+            }
+        }
+
+        Ok(())
+    }
+}
 
 pub struct CliPrinter {
     editor: Editor<(), FileHistory>,
@@ -68,16 +126,16 @@ impl CliPrinter {
     pub fn print_step(step: &Step) -> Result<()> {
         match step {
             Step::ActionStep(action_step) => {
-                println!("\n{} {}", "📍 Step:".bright_cyan().bold(), action_step.step);
-                if let Some(tool_call) = &action_step.tool_call {
-                    if !tool_call.is_empty() {
-                        if tool_call[0].function.name != "python_interpreter" {
-                            Self::print_regular_tool_call(tool_call);
-                        } else {
-                            Self::print_python_tool_call(tool_call);
-                        }
-                    }
-                }
+                // println!("\n{} {}", "📍 Step:".bright_cyan().bold(), action_step.step);
+                // if let Some(tool_call) = &action_step.tool_call {
+                //     if !tool_call.is_empty() {
+                //         if tool_call[0].function.name != "python_interpreter" {
+                //             Self::print_regular_tool_call(tool_call);
+                //         } else {
+                //             Self::print_python_tool_call(tool_call);
+                //         }
+                //     }
+                // }
 
                 if let Some(error) = &action_step.error {
                     println!("{} {}", "❌ Error:".bright_red().bold(), error);
@@ -110,7 +168,7 @@ impl CliPrinter {
         Ok(())
     }
 
-    fn print_regular_tool_call(tool_call: &[lumo::models::openai::ToolCall]) {
+    pub fn print_regular_tool_call(tool_call: &[lumo::models::openai::ToolCall]) {
         println!(
             "{} {}",
             "🔧 Executing Tools: \n".bright_magenta().bold(),
@@ -192,7 +250,7 @@ impl CliPrinter {
         PrettyPrinter::new()
             .input(bat::Input::from_bytes(answer.as_bytes()))
             .language("Markdown")
-            .wrapping_mode(bat::WrappingMode::NoWrapping(true))
+            .wrapping_mode(bat::WrappingMode::Character)
             .print()?;
         println!("\n");
         Ok(())

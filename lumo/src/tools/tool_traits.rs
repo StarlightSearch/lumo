@@ -17,7 +17,7 @@ pub trait Parameters: DeserializeOwned + JsonSchema {}
 
 /// A trait for tools that can be used in an agent.
 #[async_trait]
-pub trait Tool:  Send + Sync {
+pub trait Tool: Send + Sync {
     type Params: Parameters;
     /// The name of the tool.
     fn name(&self) -> &'static str;

@@ -1,17 +1,15 @@
 use std::collections::HashMap;
 
 use crate::{
-    models::{model_traits::Model, types::Message},
-    prompts::TOOL_CALLING_SYSTEM_PROMPT,
-    tools::{ToolFunctionInfo, ToolGroup, ToolInfo, ToolType},
+    errors::AgentError, models::{model_traits::Model, types::Message}, prompts::TOOL_CALLING_SYSTEM_PROMPT, tools::{ToolFunctionInfo, ToolGroup, ToolInfo, ToolType}
 };
 use anyhow::Result;
 use async_trait::async_trait;
 use futures::future::join_all;
-use log::info;
 use mcp_client::{Error, McpClient, McpClientTrait};
 use mcp_core::{protocol::JsonRpcMessage, Content, Tool};
 use tower::Service;
+use tracing::{instrument, Span};
 
 use super::{Agent, AgentStep, MultiStepAgent, Step};
 
@@ -26,6 +24,7 @@ fn initialize_system_prompt(system_prompt: String, tools: Vec<Tool>) -> Result<S
     let tool_description = serde_json::to_string(&tools)?;
     let mut system_prompt = system_prompt.replace("{{tool_names}}", &tool_names.join(", "));
     system_prompt = system_prompt.replace("{{tool_descriptions}}", &tool_description);
+    system_prompt = system_prompt.replace("{{current_time}}", &chrono::Local::now().to_string());
     Ok(system_prompt)
 }
 
@@ -75,9 +74,10 @@ where
 {
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
+        name: Option<&str>,
         model: M,
         system_prompt: Option<&str>,
-        managed_agents: Option<HashMap<String, Box<dyn Agent>>>,
+        managed_agents: Vec<Box<dyn Agent>>,
         description: Option<&str>,
         max_steps: Option<usize>,
         mcp_clients: Vec<McpClient<S>>,
@@ -98,6 +98,7 @@ where
             None => "A multi-step agent that can solve tasks using a series of tools".to_string(),
         };
         let base_agent = MultiStepAgent::new(
+            name,
             model,
             vec![],
             Some(&initialize_system_prompt(system_prompt, tools.clone())?),
@@ -123,9 +124,10 @@ where
     S::Error: Into<Error>,
     S::Future: Send,
 {
+    name: Option<&'a str>,
     model: M,
     system_prompt: Option<&'a str>,
-    managed_agents: Option<HashMap<String, Box<dyn Agent>>>,
+    managed_agents: Vec<Box<dyn Agent>>,
     description: Option<&'a str>,
     max_steps: Option<usize>,
     planning_interval: Option<usize>,
@@ -143,9 +145,10 @@ where
 {
     pub fn new(model: M) -> Self {
         Self {
+            name: None,
             model,
             system_prompt: None,
-            managed_agents: None,
+            managed_agents: vec![],
             description: None,
             max_steps: None,
             planning_interval: None,
@@ -154,13 +157,17 @@ where
             logging_level: None,
         }
     }
+    pub fn with_name(mut self, name: Option<&'a str>) -> Self {
+        self.name = name;
+        self
+    }
     pub fn with_system_prompt(mut self, system_prompt: Option<&'a str>) -> Self {
         self.system_prompt = system_prompt;
         self
     }
     pub fn with_managed_agents(
         mut self,
-        managed_agents: Option<HashMap<String, Box<dyn Agent>>>,
+        managed_agents: Vec<Box<dyn Agent>>,
     ) -> Self {
         self.managed_agents = managed_agents;
         self
@@ -191,6 +198,7 @@ where
     }
     pub async fn build(self) -> Result<McpAgent<M, S>> {
         McpAgent::new(
+            self.name,
             self.model,
             self.system_prompt,
             self.managed_agents,
@@ -215,6 +223,9 @@ where
 {
     fn name(&self) -> &'static str {
         self.base_agent.name()
+    }
+    fn description(&self) -> &'static str {
+        self.base_agent.description()
     }
     fn set_task(&mut self, task: &str) {
         self.base_agent.set_task(task);
@@ -259,18 +270,28 @@ where
             .planning_step(task, is_first_step, step)
             .await
     }
-    async fn step(&mut self, log_entry: &mut Step) -> Result<Option<AgentStep>> {
+    /// Perform one step in the ReAct framework: the agent thinks, acts, and observes the result.
+    ///
+    /// Returns None if the step is not final.
+    #[instrument(skip(self, log_entry), fields(step = ?self.get_step_number()))]
+    async fn step(&mut self, log_entry: &mut Step) -> Result<Option<AgentStep>, AgentError> {
         match log_entry {
             Step::ActionStep(step_log) => {
+                let span = Span::current();
+                span.record("step_type", "action");
+
                 let agent_memory = self.base_agent.write_inner_memory_from_logs(None)?;
                 self.base_agent.input_messages = Some(agent_memory.clone());
                 step_log.agent_memory = Some(agent_memory.clone());
+
                 let mut tools = self
                     .tools
                     .iter()
                     .cloned()
                     .map(ToolInfo::from)
                     .collect::<Vec<_>>();
+
+                // Add final answer tool
                 let final_answer_tool = ToolInfo::from(Tool::new(
                     "final_answer",
                     "Use this to provide your final answer to the user's request",
@@ -287,6 +308,7 @@ where
                 ));
                 tools.push(final_answer_tool);
 
+                tracing::debug!("Starting model inference with {} tools", tools.len());
                 let model_message = self
                     .base_agent
                     .model
@@ -301,11 +323,17 @@ where
                         )])),
                     )
                     .await?;
-                step_log.llm_output = Some(model_message.get_response().unwrap_or_default());
 
+                step_log.llm_output = Some(model_message.get_response().unwrap_or_default());
                 let mut observations = Vec::new();
                 let tools = model_message.get_tools_used()?;
                 step_log.tool_call = Some(tools.clone());
+
+                tracing::info!(
+                    step = self.get_step_number(),
+                    tool_calls = serde_json::to_string_pretty(&tools).unwrap_or_default(),
+                    "Agent selected tools"
+                );
 
                 if let Ok(response) = model_message.get_response() {
                     if tools.is_empty() {
@@ -320,22 +348,24 @@ where
 
                     match function_name.as_str() {
                         "final_answer" => {
-                            info!("Executing tool call: {}", function_name);
+                            tracing::info!(answer = ?tool.function.arguments, "Final answer received");
                             let answer = self.base_agent.tools.call(&tool.function).await?;
                             step_log.observations = Some(vec![answer.clone()]);
                             step_log.final_answer = Some(answer.clone());
                             return Ok(Some(step_log.clone()));
                         }
                         _ => {
-                            info!(
-                                "Executing tool call: {} with arguments: {:?}",
-                                function_name, tool.function.arguments
+                            tracing::info!(
+                                tool = %function_name,
+                                args = ?tool.function.arguments,
+                                "Executing tool call"
                             );
+
                             let mut futures = Vec::new();
                             for client in &self.mcp_clients {
                                 if client
                                     .list_tools(None)
-                                    .await?
+                                    .await.map_err(|e| AgentError::Execution(e.to_string()))?
                                     .tools
                                     .iter()
                                     .any(|t| t.name == tool.function.name)
@@ -359,16 +389,27 @@ where
                                             })
                                             .collect::<Vec<_>>()
                                             .join("\n");
-                                        observations.push(format!(
+                                        let formatted = format!(
                                             "Observation from {}: {}",
                                             function_name,
                                             text.chars().take(30000).collect::<String>()
-                                        ));
+                                        );
+                                        tracing::debug!(
+                                            tool = %function_name,
+                                            observation = %formatted,
+                                            "Tool call succeeded"
+                                        );
+                                        observations.push(formatted);
                                     }
                                     Err(e) => {
-                                        observations
-                                            .push(format!("Error from {}: {}", function_name, e));
-                                        info!("Error: {}", e);
+                                        let error_msg =
+                                            format!("Error from {}: {}", function_name, e);
+                                        tracing::error!(
+                                            tool = %function_name,
+                                            error = %e,
+                                            "Tool call failed"
+                                        );
+                                        observations.push(error_msg);
                                     }
                                 }
                             }
@@ -386,12 +427,12 @@ where
                     .len()
                     > 30000
                 {
-                    info!(
+                    tracing::debug!(
                         "Observation: {} \n ....This content has been truncated due to the 30000 character limit.....",
                         step_log.observations.clone().unwrap_or_default().join("\n").trim().chars().take(30000).collect::<String>()
                     );
                 } else {
-                    info!(
+                    tracing::debug!(
                         "Observation: {}",
                         step_log.observations.clone().unwrap_or_default().join("\n")
                     );

@@ -8,7 +8,6 @@ use lumo::agent::{
 };
 use lumo::agent::{McpAgent, Step};
 use lumo::errors::AgentError;
-use lumo::models::gemini::{GeminiServerModel, GeminiServerModelBuilder};
 use lumo::models::model_traits::{Model, ModelResponse};
 use lumo::models::ollama::{OllamaModel, OllamaModelBuilder};
 use lumo::models::openai::{OpenAIServerModel, OpenAIServerModelBuilder};
@@ -23,12 +22,15 @@ use mcp_client::{
 use mcp_core::protocol::JsonRpcMessage;
 use std::collections::HashMap;
 use std::fs::File;
+use std::io;
 use std::time::Duration;
 use tower::Service;
+use tracing::Level;
+use tracing_subscriber::{fmt, EnvFilter};
 mod config;
 use config::Servers;
 mod cli_utils;
-use cli_utils::CliPrinter;
+use cli_utils::{CliPrinter, ToolCallsFormatter};
 mod splash;
 use splash::SplashScreen;
 use embed_anything::embeddings::embed::EmbedderBuilder;
@@ -61,7 +63,7 @@ enum ModelType {
 enum ModelWrapper {
     OpenAI(OpenAIServerModel),
     Ollama(OllamaModel),
-    Gemini(GeminiServerModel),
+    Gemini(OpenAIServerModel),
 }
 
 enum AgentWrapper<
@@ -84,11 +86,7 @@ where
     S::Future: Send,
     S::Error: Into<mcp_client::Error>,
 {
-    fn stream_run<'a>(
-        &'a mut self,
-        task: &'a str,
-        reset: bool,
-    ) -> StreamResult<'a, Step> {
+    fn stream_run<'a>(&'a mut self, task: &'a str, reset: bool) -> StreamResult<'a, Step> {
         match self {
             AgentWrapper::FunctionCalling(agent) => agent.stream_run(task, reset),
             AgentWrapper::Code(agent) => agent.stream_run(task, reset),
@@ -200,15 +198,30 @@ async fn create_tool(tool_type: &ToolType) -> Box<dyn AsyncTool> {
 
 #[tokio::main]
 async fn main() -> Result<()> {
+    // Initialize tracing subscriber with custom formatting
+
+    let subscriber = fmt::Subscriber::builder()
+        .with_env_filter(
+            EnvFilter::from_default_env()
+                .add_directive(Level::INFO.into())
+                .add_directive("lumo=debug".parse().unwrap()),
+        )
+        .with_writer(io::stdout)
+        .event_format(ToolCallsFormatter)
+        .finish();
+
+    tracing::subscriber::set_global_default(subscriber).expect("Failed to set subscriber");
+
     // Display splash screen
     let config_path = Servers::config_path()?;
     let servers = Servers::load()?;
+
+    let args = Args::parse();
     SplashScreen::display(
         &config_path,
         &servers.servers.keys().cloned().collect::<Vec<_>>(),
+        &args.model_id,
     );
-
-    let args = Args::parse();
 
     let tools: Vec<Box<dyn AsyncTool>> = futures::future::join_all(
         args.tools.iter().map(create_tool)
@@ -223,12 +236,10 @@ async fn main() -> Result<()> {
                 .build()?,
         ),
         ModelType::Gemini => ModelWrapper::Gemini(
-            GeminiServerModelBuilder::new(&args.model_id)
-                // .with_base_url(Some(
-                //     args.base_url.as_deref().unwrap_or(
-                //         "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-                //     ),
-                // ))
+            OpenAIServerModelBuilder::new(&args.model_id)
+                .with_base_url(Some(args.base_url.as_deref().unwrap_or(
+                    "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+                )))
                 .with_api_key(Some(
                     args.api_key.as_deref().unwrap_or(
                         &std::env::var("GEMINI_API_KEY")
@@ -240,7 +251,7 @@ async fn main() -> Result<()> {
         ModelType::Ollama => ModelWrapper::Ollama(
             OllamaModelBuilder::new()
                 .model_id(&args.model_id)
-                .ctx_length(8000)
+                .ctx_length(20000)
                 .temperature(Some(0.1))
                 .url(
                     args.base_url
@@ -251,21 +262,11 @@ async fn main() -> Result<()> {
         ),
     };
 
-    // Ollama doesn't work well with the default system prompt. Its better to use a simple custom one or none at all.
-    let system_prompt = match args.model_type {
-        ModelType::Ollama => {
-            Some("You are a helpful assistant that can answer questions and help with tasks. Take multiple steps if needed until you have completed the task.")
-        }
-        // ModelType::Gemini => {
-        //     Some("You are a helpful assistant that can answer questions and help with tasks.")
-        // }
-        _=> None,
-    };
     let mut agent = match args.agent_type {
         AgentType::FunctionCalling => AgentWrapper::FunctionCalling(
             FunctionCallingAgentBuilder::new(model)
                 .with_tools(tools)
-                .with_system_prompt(system_prompt)
+                .with_system_prompt(servers.system_prompt.as_deref())
                 .with_max_steps(args.max_steps)
                 .with_planning_interval(args.planning_interval)
                 .with_logging_level(args.logging_level)
@@ -274,7 +275,7 @@ async fn main() -> Result<()> {
         AgentType::Code => AgentWrapper::Code(
             CodeAgentBuilder::new(model)
                 .with_tools(tools)
-                .with_system_prompt(system_prompt)
+                .with_system_prompt(servers.system_prompt.as_deref())
                 .with_max_steps(args.max_steps)
                 .with_planning_interval(args.planning_interval)
                 .with_logging_level(args.logging_level)
@@ -315,7 +316,7 @@ async fn main() -> Result<()> {
             // Create MCP agent with all initialized clients
             AgentWrapper::Mcp(
                 McpAgentBuilder::new(model)
-                    .with_system_prompt(system_prompt)
+                    .with_system_prompt(servers.system_prompt.as_deref())
                     .with_max_steps(args.max_steps)
                     .with_planning_interval(args.planning_interval)
                     .with_mcp_clients(clients)
