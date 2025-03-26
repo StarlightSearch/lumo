@@ -24,6 +24,7 @@ fn initialize_system_prompt(system_prompt: String, tools: Vec<Tool>) -> Result<S
     let tool_description = serde_json::to_string(&tools)?;
     let mut system_prompt = system_prompt.replace("{{tool_names}}", &tool_names.join(", "));
     system_prompt = system_prompt.replace("{{tool_descriptions}}", &tool_description);
+    system_prompt = system_prompt.replace("{{current_time}}", &chrono::Local::now().to_string());
     Ok(system_prompt)
 }
 

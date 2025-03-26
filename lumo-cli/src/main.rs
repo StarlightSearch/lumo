@@ -181,12 +181,13 @@ async fn main() -> Result<()> {
     // Display splash screen
     let config_path = Servers::config_path()?;
     let servers = Servers::load()?;
+
+    let args = Args::parse();
     SplashScreen::display(
         &config_path,
         &servers.servers.keys().cloned().collect::<Vec<_>>(),
+        &args.model_id,
     );
-
-    let args = Args::parse();
 
     let tools: Vec<Box<dyn AsyncTool>> = args.tools.iter().map(create_tool).collect();
 
@@ -225,18 +226,11 @@ async fn main() -> Result<()> {
         ),
     };
 
-    // Ollama doesn't work well with the default system prompt. Its better to use a simple custom one or none at all.
-    let system_prompt = match args.model_type {
-        ModelType::Ollama => {
-            Some("You are a helpful assistant that can answer questions and help with tasks. The tool call you write is an action: after the tool is executed, you will get the result of the tool call as an \"observation\". This Action/Observation can repeat N times, you should take several steps when needed. You can use the result of the previous action as input for the next action. You can call the next tool")
-        }
-        _=> None,
-    };
     let mut agent = match args.agent_type {
         AgentType::FunctionCalling => AgentWrapper::FunctionCalling(
             FunctionCallingAgentBuilder::new(model)
                 .with_tools(tools)
-                .with_system_prompt(system_prompt)
+                .with_system_prompt(servers.system_prompt.as_deref())
                 .with_max_steps(args.max_steps)
                 .with_planning_interval(args.planning_interval)
                 .with_logging_level(args.logging_level)
@@ -245,7 +239,7 @@ async fn main() -> Result<()> {
         AgentType::Code => AgentWrapper::Code(
             CodeAgentBuilder::new(model)
                 .with_tools(tools)
-                .with_system_prompt(system_prompt)
+                .with_system_prompt(servers.system_prompt.as_deref())
                 .with_max_steps(args.max_steps)
                 .with_planning_interval(args.planning_interval)
                 .with_logging_level(args.logging_level)
@@ -286,7 +280,7 @@ async fn main() -> Result<()> {
             // Create MCP agent with all initialized clients
             AgentWrapper::Mcp(
                 McpAgentBuilder::new(model)
-                    .with_system_prompt(system_prompt)
+                    .with_system_prompt(servers.system_prompt.as_deref())
                     .with_max_steps(args.max_steps)
                     .with_planning_interval(args.planning_interval)
                     .with_mcp_clients(clients)

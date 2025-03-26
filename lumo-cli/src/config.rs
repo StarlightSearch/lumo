@@ -29,6 +29,8 @@ impl ServerConfig {
 pub struct Servers {
     #[serde(flatten)]
     pub servers: HashMap<String, ServerConfig>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub system_prompt: Option<String>,
 }
 
 impl Servers {
