@@ -1,7 +1,6 @@
 use std::sync::Arc;
 
-use futures::StreamExt;
-use lumo::agent::{Agent, AgentStream, FunctionCallingAgentBuilder, Step};
+use lumo::agent::{Agent, FunctionCallingAgentBuilder};
 use lumo::models::openai::OpenAIServerModelBuilder;
 use lumo::tools::{AsyncTool, DuckDuckGoSearchTool, LanceRAGTool, PythonInterpreterTool, VisitWebsiteTool};
 use embed_anything::embeddings::embed::EmbedderBuilder;
@@ -68,26 +67,7 @@ async fn main() {
         .build()
         .unwrap();
 
-    let mut result = agent.stream_run("What is EEG classification. And what are the different methods used for EEG classification.", true).unwrap();
-    let mut file = std::fs::File::create("result.txt").unwrap();
-    while let Some(step) = result.next().await {
-        match step {
-            Ok(Step::PlanningStep(plan, facts)) => {
-                println!("Plan: {}", plan);
-                println!("Facts: {}", facts);
-            }
-            Ok(Step::ActionStep(action_step)) => {
-                serde_json::to_writer_pretty(&mut file, &action_step).unwrap();
-
-                println!("Action: {}", action_step);
-            }
-            _ => {
-                println!("Step: {:?}", step);
-            }
-            Err(e) => {
-                println!("Error: {}", e);
-            }
-        }
-    }
+    let _result = agent.run("What are the stock prices of Apple and Nvidia. Get the ratio between the two.", true).await.unwrap();
+ 
 }
 
