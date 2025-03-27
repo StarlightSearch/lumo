@@ -256,7 +256,7 @@ impl Model for OpenAIServerModel {
 
         if !tools_to_call_from.is_empty() {
             body["tools"] = json!(tools_to_call_from);
-            body["tool_choice"] = json!("required");
+            body["tool_choice"] = json!("auto");
         }
 
         if let Some(args) = args {

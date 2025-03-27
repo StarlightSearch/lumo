@@ -175,6 +175,9 @@ impl<M: Model  + Send + Sync + 'static> Agent for CodeAgent<M> {
     fn set_task(&mut self, task: &str) {
         self.base_agent.set_task(task);
     }
+    fn get_task(&self) -> &str {
+        self.base_agent.get_task()
+    }
     fn get_system_prompt(&self) -> &str {
         self.base_agent.get_system_prompt()
     }

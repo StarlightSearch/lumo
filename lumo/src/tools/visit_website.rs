@@ -35,6 +35,11 @@ impl VisitWebsiteTool {
             Err(_) => Url::parse(&format!("https://{}", url)).unwrap(),
         };
 
+        // Check if URL points to a PDF
+        if url.path().to_lowercase().ends_with(".pdf") {
+            return "This URL points to a PDF file which cannot be processed directly. Please download and view the PDF separately.".to_string();
+        }
+
         let response = client.get(url.clone()).send().await;
 
         match response {

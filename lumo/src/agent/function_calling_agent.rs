@@ -154,6 +154,9 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
     fn set_task(&mut self, task: &str) {
         self.base_agent.set_task(task);
     }
+    fn get_task(&self) -> &str {
+        self.base_agent.get_task()
+    }
     fn get_system_prompt(&self) -> &str {
         self.base_agent.get_system_prompt()
     }
@@ -315,7 +318,8 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                                 if let Some(task_str) = task.as_str() {
                                     tasks.push(task_str.to_string());
                                 } else {
-                                    step_log.observations = Some(vec!["Task should be a string.".to_string()]);
+                                    step_log.observations =
+                                        Some(vec!["Task should be a string.".to_string()]);
                                     tracing::error!("Task should be a string.");
                                 }
                             } else {
