@@ -210,7 +210,7 @@ pub trait Agent: Send + Sync {
                             });
                             memory.push(Message {
                                 role: MessageRole::User,
-                                content: format!("Given the observation, please provide a response if you have enough information to do so. Otherwise, use a tool to get more information, The original task is: {}", task),
+                                content: format!("Given the observation, if you have enough information, please provide a response using the final answer tool. Otherwise, use a tool to get more information, The original task is: {}", task),
                                 tool_call_id: None,
                                 tool_calls: None,
                             });
