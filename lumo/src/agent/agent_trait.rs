@@ -124,6 +124,7 @@ pub trait Agent: Send + Sync {
     ) -> Result<Vec<Message>, AgentError> {
         let mut memory = Vec::new();
         let summary_mode = summary_mode.unwrap_or(false);
+        let task = self.get_task().to_string();
         for log in self.get_logs_mut() {
             match log {
                 Step::ToolCall(_) => {}
@@ -207,7 +208,12 @@ pub trait Agent: Send + Sync {
                                 tool_call_id: id,
                                 tool_calls: None,
                             });
-                          
+                            memory.push(Message {
+                                role: MessageRole::User,
+                                content: format!("Given the observation, please provide a response if you have enough information to do so. Otherwise, use a tool to get more information, The original task is: {}", task),
+                                tool_call_id: None,
+                                tool_calls: None,
+                            });
                         }
                     } else if let Some(observations) = &step_log.observations {
                         memory.push(Message {
