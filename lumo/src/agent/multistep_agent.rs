@@ -120,6 +120,9 @@ where
     fn set_task(&mut self, task: &str) {
         self.task = task.to_string();
     }
+    fn get_task(&self) -> &str {
+        &self.task
+    }
     fn get_system_prompt(&self) -> &str {
         &self.system_prompt_template
     }

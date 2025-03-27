@@ -27,6 +27,7 @@ pub trait Agent: Send + Sync {
     fn increment_step_number(&mut self);
     fn get_logs_mut(&mut self) -> &mut Vec<Step>;
     fn set_task(&mut self, task: &str);
+    fn get_task(&self) -> &str;
     fn get_system_prompt(&self) -> &str;
     fn get_planning_interval(&self) -> Option<usize>;
     fn set_planning_interval(&mut self, planning_interval: Option<usize>);
@@ -88,6 +89,7 @@ pub trait Agent: Send + Sync {
             self.reset_step_number();
         }
         self.get_logs_mut().push(Step::TaskStep(task.to_string()));
+        self.set_task(task);
         self.set_step_number(1);
 
         self.direct_run(task).await
@@ -205,6 +207,7 @@ pub trait Agent: Send + Sync {
                                 tool_call_id: id,
                                 tool_calls: None,
                             });
+                          
                         }
                     } else if let Some(observations) = &step_log.observations {
                         memory.push(Message {
@@ -249,6 +252,7 @@ pub trait AgentStream: Agent {
             self.reset_step_number();
         }
         self.get_logs_mut().push(Step::TaskStep(task.to_string()));
+        self.set_task(task);
         self.set_step_number(1);
 
         let mut final_answer: Option<String> = None;

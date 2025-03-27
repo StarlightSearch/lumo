@@ -239,7 +239,6 @@ async fn main() -> Result<()> {
         AgentType::Code => AgentWrapper::Code(
             CodeAgentBuilder::new(model)
                 .with_tools(tools)
-                .with_system_prompt(servers.system_prompt.as_deref())
                 .with_max_steps(args.max_steps)
                 .with_planning_interval(args.planning_interval)
                 .with_logging_level(args.logging_level)
