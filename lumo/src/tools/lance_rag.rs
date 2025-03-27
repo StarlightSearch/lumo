@@ -153,7 +153,7 @@ impl Tool for LanceRAGTool {
             .enumerate()
             .map(|(i, r)| {
                 format!(
-                    " -------- \nContext {} \nText: {} --------",
+                    "\nContext {} \nText: {} --------",
                     i + 1,
                     // r.file_name,
                     // r.page_number.unwrap_or("N/A".to_string()),
