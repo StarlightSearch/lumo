@@ -174,7 +174,7 @@ impl Model for OllamaModel {
         args: Option<HashMap<String, Vec<String>>>,
     ) -> Result<Box<dyn ModelResponse>, AgentError> {
         let tools = json!(tools_to_call_from);
-        let mut messages = messages;
+        let mut messages = messages[1..].to_vec();
         if let Some(history) = history {
             messages = [history, messages].concat();
         }

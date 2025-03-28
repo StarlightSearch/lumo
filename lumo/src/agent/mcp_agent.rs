@@ -295,21 +295,21 @@ where
                     .collect::<Vec<_>>();
 
                 // Add final answer tool
-                let final_answer_tool = ToolInfo::from(Tool::new(
-                    "final_answer",
-                    "Use this to provide your final answer to the user's request",
-                    serde_json::json!({
-                        "type": "object",
-                        "properties": {
-                            "answer": {
-                                "type": "string",
-                                "description": "The final answer to provide to the user"
-                            }
-                        },
-                        "required": ["answer"]
-                    }),
-                ));
-                tools.push(final_answer_tool);
+                // let final_answer_tool = ToolInfo::from(Tool::new(
+                //     "final_answer",
+                //     "Use this to provide your final answer to the user's request",
+                //     serde_json::json!({
+                //         "type": "object",
+                //         "properties": {
+                //             "answer": {
+                //                 "type": "string",
+                //                 "description": "The final answer to provide to the user"
+                //             }
+                //         },
+                //         "required": ["answer"]
+                //     }),
+                // ));
+                // tools.push(final_answer_tool);
 
                 tracing::debug!("Starting model inference with {} tools", tools.len());
                 let model_message = self

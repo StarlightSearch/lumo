@@ -226,11 +226,25 @@ async fn main() -> Result<()> {
         ),
     };
 
+    let system_prompt = match args.model_type {
+        ModelType::Ollama => Some(r#"You are a helpful assistant that can answer questions and help with tasks. You are given access tools which you can use to answer the user's question. 
+        
+1. You can use multiple tools to answer the user's question.
+2. Do not use the tool with the same parameters more than once.
+3. Provide a detailed response in a well structured and easy to understand manner.
+4. If you don't have enough information to answer the user's question, say so.
+5. When needed, provide references to the sources you used to answer the user's question. You can provide these references in a list format at the end of your response.
+
+The current time is {{current_time}}"#),
+        _=> servers.system_prompt.as_deref(),
+
+    };
+
     let mut agent = match args.agent_type {
         AgentType::FunctionCalling => AgentWrapper::FunctionCalling(
             FunctionCallingAgentBuilder::new(model)
                 .with_tools(tools)
-                .with_system_prompt(servers.system_prompt.as_deref())
+                .with_system_prompt(system_prompt)
                 .with_max_steps(args.max_steps)
                 .with_planning_interval(args.planning_interval)
                 .with_logging_level(args.logging_level)
@@ -279,7 +293,7 @@ async fn main() -> Result<()> {
             // Create MCP agent with all initialized clients
             AgentWrapper::Mcp(
                 McpAgentBuilder::new(model)
-                    .with_system_prompt(servers.system_prompt.as_deref())
+                    .with_system_prompt(system_prompt)
                     .with_max_steps(args.max_steps)
                     .with_planning_interval(args.planning_interval)
                     .with_mcp_clients(clients)

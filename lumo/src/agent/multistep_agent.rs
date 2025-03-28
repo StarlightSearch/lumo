@@ -203,8 +203,8 @@ where
             None => "A multi-step agent that can solve tasks using a series of tools".to_string(),
         };
 
-        let final_answer_tool = FinalAnswerTool::new();
-        tools.push(Box::new(final_answer_tool));
+        // let final_answer_tool = FinalAnswerTool::new();
+        // tools.push(Box::new(final_answer_tool));
 
 
         let mut agent = MultiStepAgent {

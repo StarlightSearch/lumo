@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, io::Write};
 
 use crate::{
     errors::AgentError,
@@ -266,7 +266,9 @@ impl Model for OpenAIServerModel {
             }
         }
 
-
+        let mut writer = std::fs::File::create("openai_body.json").unwrap();
+        writer.write_all(body.to_string().as_bytes()).unwrap();
+        
         let response = self
             .client
             .post(&self.base_url)

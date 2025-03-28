@@ -261,7 +261,11 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                 step_log.llm_output = Some(model_message.get_response().unwrap_or_default());
                 let mut observations = Vec::new();
                 let mut tools = model_message.get_tools_used()?;
-                step_log.tool_call = Some(tools.clone());
+                step_log.tool_call = if tools.is_empty() {
+                    None
+                } else {
+                    Some(tools.clone())
+                };
 
                 tracing::info!(
                     step = self.get_step_number(),
@@ -272,6 +276,8 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                 if let Ok(response) = model_message.get_response() {
                     if !response.trim().is_empty() {
                         if let Ok(action) = parse_response(&response) {
+                            println!("response: {}", response);
+
                             tools = vec![ToolCall {
                                 id: Some(format!("call_{}", nanoid::nanoid!())),
                                 call_type: Some("function".to_string()),

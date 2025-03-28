@@ -44,7 +44,7 @@ pub trait Agent: Send + Sync {
     async fn direct_run(&mut self, task: &str) -> Result<String, AgentError> {
         let mut final_answer: Option<String> = None;
         while final_answer.is_none() && self.get_step_number() < self.get_max_steps() {
-            let mut step_log = Step::ActionStep(AgentStep::new(self.get_step_number()));
+            let mut step_log = Step::ActionStep(AgentStep::new(self.get_step_number(), Some(task.to_string())));
 
             if let Some(planning_interval) = self.get_planning_interval() {
                 if self.get_step_number() % planning_interval == 1 {
@@ -124,7 +124,6 @@ pub trait Agent: Send + Sync {
     ) -> Result<Vec<Message>, AgentError> {
         let mut memory = Vec::new();
         let summary_mode = summary_mode.unwrap_or(false);
-        let task = self.get_task().to_string();
         for log in self.get_logs_mut() {
             match log {
                 Step::ToolCall(_) => {}
@@ -208,12 +207,15 @@ pub trait Agent: Send + Sync {
                                 tool_call_id: id,
                                 tool_calls: None,
                             });
-                            memory.push(Message {
-                                role: MessageRole::User,
-                                content: format!("Given the observation, if you have enough information, please provide a response using the final answer tool. Otherwise, use a tool to get more information, The original task is: {}", task),
-                                tool_call_id: None,
-                                tool_calls: None,
-                            });
+
+                            if let Some(task) = &step_log.task {
+                                memory.push(Message {
+                                    role: MessageRole::User,
+                                    content: format!("Given the observation, if you have enough information, please provide the answer. Otherwise, use a tool to get more information, The original task is: {}", task),
+                                    tool_call_id: None,
+                                    tool_calls: None,
+                                });
+                            }
                         }
                     } else if let Some(observations) = &step_log.observations {
                         memory.push(Message {
@@ -265,7 +267,7 @@ pub trait AgentStream: Agent {
 
         let stream = async_stream::stream! {
             while final_answer.is_none() && self.get_step_number() < self.get_max_steps() {
-                let mut step_log = Step::ActionStep(AgentStep::new(self.get_step_number()));
+                let mut step_log = Step::ActionStep(AgentStep::new(self.get_step_number(), Some(task.to_string())));
 
                 if let Some(planning_interval) = self.get_planning_interval() {
                     if self.get_step_number() % planning_interval == 1 {
