@@ -27,6 +27,7 @@ pub trait Agent: Send + Sync {
     fn increment_step_number(&mut self);
     fn get_logs_mut(&mut self) -> &mut Vec<Step>;
     fn set_task(&mut self, task: &str);
+    fn get_task(&self) -> &str;
     fn get_system_prompt(&self) -> &str;
     fn get_planning_interval(&self) -> Option<usize>;
     fn set_planning_interval(&mut self, planning_interval: Option<usize>);
@@ -43,7 +44,7 @@ pub trait Agent: Send + Sync {
     async fn direct_run(&mut self, task: &str) -> Result<String, AgentError> {
         let mut final_answer: Option<String> = None;
         while final_answer.is_none() && self.get_step_number() < self.get_max_steps() {
-            let mut step_log = Step::ActionStep(AgentStep::new(self.get_step_number()));
+            let mut step_log = Step::ActionStep(AgentStep::new(self.get_step_number(), Some(task.to_string())));
 
             if let Some(planning_interval) = self.get_planning_interval() {
                 if self.get_step_number() % planning_interval == 1 {
@@ -88,6 +89,7 @@ pub trait Agent: Send + Sync {
             self.reset_step_number();
         }
         self.get_logs_mut().push(Step::TaskStep(task.to_string()));
+        self.set_task(task);
         self.set_step_number(1);
 
         self.direct_run(task).await
@@ -205,6 +207,15 @@ pub trait Agent: Send + Sync {
                                 tool_call_id: id,
                                 tool_calls: None,
                             });
+
+                            if let Some(task) = &step_log.task {
+                                memory.push(Message {
+                                    role: MessageRole::User,
+                                    content: format!("Given the observation, if you have enough information, please provide the answer. Otherwise, use a tool to get more information, The original task is: {}", task),
+                                    tool_call_id: None,
+                                    tool_calls: None,
+                                });
+                            }
                         }
                     } else if let Some(observations) = &step_log.observations {
                         memory.push(Message {
@@ -249,13 +260,14 @@ pub trait AgentStream: Agent {
             self.reset_step_number();
         }
         self.get_logs_mut().push(Step::TaskStep(task.to_string()));
+        self.set_task(task);
         self.set_step_number(1);
 
         let mut final_answer: Option<String> = None;
 
         let stream = async_stream::stream! {
             while final_answer.is_none() && self.get_step_number() < self.get_max_steps() {
-                let mut step_log = Step::ActionStep(AgentStep::new(self.get_step_number()));
+                let mut step_log = Step::ActionStep(AgentStep::new(self.get_step_number(), Some(task.to_string())));
 
                 if let Some(planning_interval) = self.get_planning_interval() {
                     if self.get_step_number() % planning_interval == 1 {

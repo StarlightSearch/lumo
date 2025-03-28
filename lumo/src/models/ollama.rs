@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use serde::{Deserialize, Serialize};
 use serde_json::json;
 
 use crate::{errors::AgentError, tools::ToolInfo};
@@ -9,9 +10,70 @@ use reqwest::Client;
 
 use super::{
     model_traits::{Model, ModelResponse},
-    openai::OpenAIResponse,
-    types::Message,
+    openai::{FunctionCall, ToolCall},
+    types::{Message, MessageRole},
 };
+
+#[derive(Debug, Deserialize)]
+pub struct OllamaResponse {
+    pub message: AssistantMessage,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct AssistantMessage {
+    pub role: MessageRole,
+    pub content: Option<String>,
+    pub tool_calls: Option<Vec<OllamaToolCall>>,
+    pub refusal: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Clone, Serialize)]
+pub struct OllamaToolCall {
+    pub id: Option<String>,
+    #[serde(rename = "type")]
+    pub call_type: Option<String>,
+    pub function: OllamaFunctionCall,
+}
+
+#[derive(Debug, Deserialize, Clone, Serialize)]
+pub struct OllamaFunctionCall {
+    pub name: String,
+    pub arguments: serde_json::Value,
+}
+
+#[derive(Debug, Deserialize, Clone, Serialize)]
+pub struct OllamaMessage {
+    pub role: MessageRole,
+    pub content: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_calls: Option<Vec<OllamaToolCall>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tool_id: Option<String>,
+}
+
+impl ModelResponse for OllamaResponse {
+    fn get_response(&self) -> Result<String, AgentError> {
+        Ok(self.message.content.clone().unwrap_or_default())
+    }
+
+    fn get_tools_used(&self) -> Result<Vec<ToolCall>, AgentError> {
+        Ok(self
+            .message
+            .tool_calls
+            .clone()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|tool_call| ToolCall {
+                id: tool_call.id,
+                call_type: tool_call.call_type,
+                function: FunctionCall {
+                    name: tool_call.function.name,
+                    arguments: tool_call.function.arguments,
+                },
+            })
+            .collect())
+    }
+}
 
 #[derive(Debug)]
 pub struct OllamaModel {
@@ -112,10 +174,26 @@ impl Model for OllamaModel {
         args: Option<HashMap<String, Vec<String>>>,
     ) -> Result<Box<dyn ModelResponse>, AgentError> {
         let tools = json!(tools_to_call_from);
-        let mut messages = messages;
+        let mut messages = messages[1..].to_vec();
         if let Some(history) = history {
             messages = [history, messages].concat();
         }
+        let messages = messages.into_iter().map(|m| OllamaMessage {
+            role: m.role,
+            content: m.content.into(),
+            tool_calls: m.tool_calls.map(|tool_calls| {
+                tool_calls.into_iter().map(|tc| OllamaToolCall {
+                    id: tc.id,
+                    call_type: tc.call_type,
+                    function: OllamaFunctionCall {
+                        name: tc.function.name,
+                        arguments: tc.function.arguments,
+                    },
+                }).collect()
+            }),
+            tool_id: m.tool_call_id,
+        }).collect::<Vec<_>>();
+
 
         let mut body = json!({
             "model": self.model_id,
@@ -134,12 +212,12 @@ impl Model for OllamaModel {
         }
         if self.native_tools {
             body["tools"] = tools;
-            body["tool_choice"] = json!("required");
+            body["tool_choice"] = json!("auto");
         }
 
         let response = self
             .client
-            .post(format!("{}/v1/chat/completions", self.url))
+            .post(format!("{}/api/chat", self.url))
             .header("Content-Type", "application/json")
             .json(&body)
             .send()
@@ -155,7 +233,7 @@ impl Model for OllamaModel {
                 error_message
             )));
         }
-        let output = response.json::<OpenAIResponse>().await.map_err(|e| {
+        let output = response.json::<OllamaResponse>().await.map_err(|e| {
             AgentError::Generation(format!("Failed to parse response from Ollama: {}", e))
         })?;
         Ok(Box::new(output))

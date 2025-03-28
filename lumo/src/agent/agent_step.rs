@@ -34,10 +34,11 @@ pub struct AgentStep {
     pub observations: Option<Vec<String>>,
     pub final_answer: Option<String>,
     pub step: usize,
+    pub task: Option<String>,
 }
 
 impl AgentStep {
-    pub fn new(step: usize) -> Self {
+    pub fn new(step: usize, task: Option<String>) -> Self {
         Self {
             agent_memory: None,
             llm_output: None,
@@ -46,6 +47,7 @@ impl AgentStep {
             observations: None,
             final_answer: None,
             step,
+            task,
         }
     }
 }

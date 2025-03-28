@@ -120,6 +120,9 @@ where
     fn set_task(&mut self, task: &str) {
         self.task = task.to_string();
     }
+    fn get_task(&self) -> &str {
+        &self.task
+    }
     fn get_system_prompt(&self) -> &str {
         &self.system_prompt_template
     }
@@ -200,8 +203,8 @@ where
             None => "A multi-step agent that can solve tasks using a series of tools".to_string(),
         };
 
-        let final_answer_tool = FinalAnswerTool::new();
-        tools.push(Box::new(final_answer_tool));
+        // let final_answer_tool = FinalAnswerTool::new();
+        // tools.push(Box::new(final_answer_tool));
 
 
         let mut agent = MultiStepAgent {

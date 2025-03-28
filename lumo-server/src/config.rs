@@ -81,10 +81,7 @@ impl Servers {
     }
 
     pub fn config_path() -> Result<PathBuf> {
-        let proj_dirs = ProjectDirs::from("com", "lumo", "lumo-cli")
-            .context("Failed to determine config directory")?;
-
-        Ok(proj_dirs.config_dir().join("servers.yaml"))
+        Ok(PathBuf::from("config/servers.yaml"))
     }
 
 } 

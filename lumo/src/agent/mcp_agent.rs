@@ -24,6 +24,7 @@ fn initialize_system_prompt(system_prompt: String, tools: Vec<Tool>) -> Result<S
     let tool_description = serde_json::to_string(&tools)?;
     let mut system_prompt = system_prompt.replace("{{tool_names}}", &tool_names.join(", "));
     system_prompt = system_prompt.replace("{{tool_descriptions}}", &tool_description);
+    system_prompt = system_prompt.replace("{{current_time}}", &chrono::Local::now().to_string());
     Ok(system_prompt)
 }
 
@@ -229,6 +230,9 @@ where
     fn set_task(&mut self, task: &str) {
         self.base_agent.set_task(task);
     }
+    fn get_task(&self) -> &str {
+        self.base_agent.get_task()
+    }
     fn get_system_prompt(&self) -> &str {
         self.base_agent.get_system_prompt()
     }
@@ -291,21 +295,21 @@ where
                     .collect::<Vec<_>>();
 
                 // Add final answer tool
-                let final_answer_tool = ToolInfo::from(Tool::new(
-                    "final_answer",
-                    "Use this to provide your final answer to the user's request",
-                    serde_json::json!({
-                        "type": "object",
-                        "properties": {
-                            "answer": {
-                                "type": "string",
-                                "description": "The final answer to provide to the user"
-                            }
-                        },
-                        "required": ["answer"]
-                    }),
-                ));
-                tools.push(final_answer_tool);
+                // let final_answer_tool = ToolInfo::from(Tool::new(
+                //     "final_answer",
+                //     "Use this to provide your final answer to the user's request",
+                //     serde_json::json!({
+                //         "type": "object",
+                //         "properties": {
+                //             "answer": {
+                //                 "type": "string",
+                //                 "description": "The final answer to provide to the user"
+                //             }
+                //         },
+                //         "required": ["answer"]
+                //     }),
+                // ));
+                // tools.push(final_answer_tool);
 
                 tracing::debug!("Starting model inference with {} tools", tools.len());
                 let model_message = self

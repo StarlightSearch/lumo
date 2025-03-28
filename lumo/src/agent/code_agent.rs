@@ -12,7 +12,7 @@ use crate::{
         types::Message,
     },
     prompts::CODE_SYSTEM_PROMPT,
-    tools::AsyncTool,
+    tools::{AsyncTool, FinalAnswerTool},
 };
 
 use super::{agent_step::Step, agent_trait::Agent, multistep_agent::MultiStepAgent, AgentStep};
@@ -43,7 +43,7 @@ impl<M: Model + Send + Sync + 'static> CodeAgent<M> {
     ) -> Result<Self> {
         let system_prompt = system_prompt.unwrap_or(CODE_SYSTEM_PROMPT);
 
-        let base_agent = MultiStepAgent::new(
+        let mut base_agent = MultiStepAgent::new(
             name,
             model,
             tools,
@@ -55,6 +55,10 @@ impl<M: Model + Send + Sync + 'static> CodeAgent<M> {
             history,
             logging_level,
         )?;
+
+        let final_answer_tool = FinalAnswerTool::new();
+        base_agent.tools.push(Box::new(final_answer_tool));
+
 
         let local_python_interpreter = LocalPythonInterpreter::new(Some(&base_agent.tools), None);
 
@@ -174,6 +178,9 @@ impl<M: Model  + Send + Sync + 'static> Agent for CodeAgent<M> {
     }
     fn set_task(&mut self, task: &str) {
         self.base_agent.set_task(task);
+    }
+    fn get_task(&self) -> &str {
+        self.base_agent.get_task()
     }
     fn get_system_prompt(&self) -> &str {
         self.base_agent.get_system_prompt()

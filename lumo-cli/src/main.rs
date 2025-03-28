@@ -181,12 +181,13 @@ async fn main() -> Result<()> {
     // Display splash screen
     let config_path = Servers::config_path()?;
     let servers = Servers::load()?;
+
+    let args = Args::parse();
     SplashScreen::display(
         &config_path,
         &servers.servers.keys().cloned().collect::<Vec<_>>(),
+        &args.model_id,
     );
-
-    let args = Args::parse();
 
     let tools: Vec<Box<dyn AsyncTool>> = args.tools.iter().map(create_tool).collect();
 
@@ -225,13 +226,20 @@ async fn main() -> Result<()> {
         ),
     };
 
-    // Ollama doesn't work well with the default system prompt. Its better to use a simple custom one or none at all.
     let system_prompt = match args.model_type {
-        ModelType::Ollama => {
-            Some("You are a helpful assistant that can answer questions and help with tasks. The tool call you write is an action: after the tool is executed, you will get the result of the tool call as an \"observation\". This Action/Observation can repeat N times, you should take several steps when needed. You can use the result of the previous action as input for the next action. You can call the next tool")
-        }
-        _=> None,
+        ModelType::Ollama => Some(r#"You are a helpful assistant that can answer questions and help with tasks. You are given access tools which you can use to answer the user's question. 
+        
+1. You can use multiple tools to answer the user's question.
+2. Do not use the tool with the same parameters more than once.
+3. Provide a detailed response in a well structured and easy to understand manner.
+4. If you don't have enough information to answer the user's question, say so.
+5. When needed, provide references to the sources you used to answer the user's question. You can provide these references in a list format at the end of your response.
+
+The current time is {{current_time}}"#),
+        _=> servers.system_prompt.as_deref(),
+
     };
+
     let mut agent = match args.agent_type {
         AgentType::FunctionCalling => AgentWrapper::FunctionCalling(
             FunctionCallingAgentBuilder::new(model)
@@ -245,7 +253,6 @@ async fn main() -> Result<()> {
         AgentType::Code => AgentWrapper::Code(
             CodeAgentBuilder::new(model)
                 .with_tools(tools)
-                .with_system_prompt(system_prompt)
                 .with_max_steps(args.max_steps)
                 .with_planning_interval(args.planning_interval)
                 .with_logging_level(args.logging_level)
