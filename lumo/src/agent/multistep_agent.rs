@@ -175,7 +175,7 @@ where
     pub fn new(
         name: Option<&str>,
         model: M,
-        mut tools: Vec<Box<dyn AsyncTool>>,
+        tools: Vec<Box<dyn AsyncTool>>,
         system_prompt: Option<&str>,
         managed_agents: Vec<Box<dyn Agent>>,
         description: Option<&str>,
@@ -203,8 +203,8 @@ where
             None => "A multi-step agent that can solve tasks using a series of tools".to_string(),
         };
 
-        let final_answer_tool = FinalAnswerTool::new();
-        tools.push(Box::new(final_answer_tool));
+        // let final_answer_tool = FinalAnswerTool::new();
+        // tools.push(Box::new(final_answer_tool));
 
 
         let mut agent = MultiStepAgent {
