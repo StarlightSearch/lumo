@@ -1,6 +1,6 @@
 [package]
 name = "lumo-examples"
-version = "0.1.3"
+version.workspace = true
 edition = "2021"
 description = "The CLI for running Lumo Agent"
 license = "Apache-2.0"

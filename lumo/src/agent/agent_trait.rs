@@ -1,6 +1,7 @@
 use super::agent_step::Step;
 use crate::{
     agent::agent_step::AgentStep,
+    errors::AgentError,
     models::{
         model_traits::Model,
         types::{Message, MessageRole},
@@ -13,6 +14,7 @@ use log::info;
 #[cfg(feature = "stream")]
 use {futures::Stream, std::pin::Pin};
 
+#[cfg(feature = "stream")]
 pub type StreamResult<'a, T> = Result<Pin<Box<dyn Stream<Item = Result<T>> + 'a>>>;
 
 #[async_trait]
@@ -25,6 +27,7 @@ pub trait Agent: Send + Sync {
     fn increment_step_number(&mut self);
     fn get_logs_mut(&mut self) -> &mut Vec<Step>;
     fn set_task(&mut self, task: &str);
+    fn get_task(&self) -> &str;
     fn get_system_prompt(&self) -> &str;
     fn get_planning_interval(&self) -> Option<usize>;
     fn set_planning_interval(&mut self, planning_interval: Option<usize>);
@@ -34,16 +37,14 @@ pub trait Agent: Send + Sync {
         is_first_step: bool,
         step: usize,
     ) -> Result<Option<Step>>;
-    fn description(&self) -> String {
-        "".to_string()
-    }
+    fn description(&self) -> &'static str;
     fn model(&self) -> &dyn Model;
-    async fn step(&mut self, log_entry: &mut Step) -> Result<Option<AgentStep>>;
+    async fn step(&mut self, log_entry: &mut Step) -> Result<Option<AgentStep>, AgentError>;
 
-    async fn direct_run(&mut self, task: &str) -> Result<String> {
+    async fn direct_run(&mut self, task: &str) -> Result<String, AgentError> {
         let mut final_answer: Option<String> = None;
         while final_answer.is_none() && self.get_step_number() < self.get_max_steps() {
-            let mut step_log = Step::ActionStep(AgentStep::new(self.get_step_number()));
+            let mut step_log = Step::ActionStep(AgentStep::new(self.get_step_number(), Some(task.to_string())));
 
             if let Some(planning_interval) = self.get_planning_interval() {
                 if self.get_step_number() % planning_interval == 1 {
@@ -72,7 +73,7 @@ pub trait Agent: Send + Sync {
         Ok(final_answer.unwrap_or_else(|| "Max steps reached without final answer".to_string()))
     }
 
-    async fn run(&mut self, task: &str, reset: bool) -> Result<String> {
+    async fn run(&mut self, task: &str, reset: bool) -> Result<String, AgentError> {
         self.set_task(task);
         self.set_step_number(1);
         let system_prompt_step = Step::SystemPromptStep(self.get_system_prompt().to_string());
@@ -88,12 +89,13 @@ pub trait Agent: Send + Sync {
             self.reset_step_number();
         }
         self.get_logs_mut().push(Step::TaskStep(task.to_string()));
+        self.set_task(task);
         self.set_step_number(1);
 
         self.direct_run(task).await
     }
 
-    async fn provide_final_answer(&mut self, task: &str) -> Result<Option<String>> {
+    async fn provide_final_answer(&mut self, task: &str) -> Result<Option<String>, AgentError> {
         let mut input_messages = vec![Message {
             role: MessageRole::User,
             content: "An agent tried to answer a user query but it got stuck and failed to do so. You are tasked with providing an answer instead. Here is the agent's memory:".to_string(),
@@ -116,7 +118,10 @@ pub trait Agent: Send + Sync {
         Ok(Some(response))
     }
 
-    fn write_inner_memory_from_logs(&mut self, summary_mode: Option<bool>) -> Result<Vec<Message>> {
+    fn write_inner_memory_from_logs(
+        &mut self,
+        summary_mode: Option<bool>,
+    ) -> Result<Vec<Message>, AgentError> {
         let mut memory = Vec::new();
         let summary_mode = summary_mode.unwrap_or(false);
         for log in self.get_logs_mut() {
@@ -160,11 +165,8 @@ pub trait Agent: Send + Sync {
                             if let Some(tool_call) = &step_log.tool_call {
                                 tool_call
                                     .iter()
-                                    .map(|tool_call| {
-                                        format!(
-                                            "Call tool {} with args {}",
-                                            tool_call.function.name, tool_call.function.arguments
-                                        )
+                                    .map(|_| {
+                                        "I have provided the tool calls. You can provide the responses to the tool calls in the next message.".to_string()
                                     })
                                     .collect::<Vec<String>>()
                                     .join("\n")
@@ -205,6 +207,15 @@ pub trait Agent: Send + Sync {
                                 tool_call_id: id,
                                 tool_calls: None,
                             });
+
+                            // if let Some(task) = &step_log.task {
+                            //     memory.push(Message {
+                            //         role: MessageRole::User,
+                            //         content: format!("Given the observation, if you have enough information, please provide the answer. Otherwise, use a tool to get more information, The original task is: {}", task),
+                            //         tool_call_id: None,
+                            //         tool_calls: None,
+                            //     });
+                            // }
                         }
                     } else if let Some(observations) = &step_log.observations {
                         memory.push(Message {
@@ -235,11 +246,7 @@ pub trait Agent: Send + Sync {
 
 #[cfg(feature = "stream")]
 pub trait AgentStream: Agent {
-    fn stream_run<'a>(
-        &'a mut self,
-        task: &'a str,
-        reset: bool,
-    ) -> StreamResult<'a, Step> {
+    fn stream_run<'a>(&'a mut self, task: &'a str, reset: bool) -> StreamResult<'a, Step> {
         let system_prompt_step = Step::SystemPromptStep(self.get_system_prompt().to_string());
         if reset {
             self.get_logs_mut().clear();
@@ -253,13 +260,14 @@ pub trait AgentStream: Agent {
             self.reset_step_number();
         }
         self.get_logs_mut().push(Step::TaskStep(task.to_string()));
+        self.set_task(task);
         self.set_step_number(1);
 
         let mut final_answer: Option<String> = None;
 
         let stream = async_stream::stream! {
             while final_answer.is_none() && self.get_step_number() < self.get_max_steps() {
-                let mut step_log = Step::ActionStep(AgentStep::new(self.get_step_number()));
+                let mut step_log = Step::ActionStep(AgentStep::new(self.get_step_number(), Some(task.to_string())));
 
                 if let Some(planning_interval) = self.get_planning_interval() {
                     if self.get_step_number() % planning_interval == 1 {
@@ -285,7 +293,7 @@ pub trait AgentStream: Agent {
                     }
                     Ok(None) => {},
                     Err(e) => {
-                        yield Err(e);
+                        yield Err(e.into());
                         break;
                     }
                 }
@@ -301,7 +309,7 @@ pub trait AgentStream: Agent {
                         }));
                     }
                     Ok(None) => {},
-                    Err(e) => yield Err(e),
+                    Err(e) => yield Err(e.into()),
                 }
             }
         };

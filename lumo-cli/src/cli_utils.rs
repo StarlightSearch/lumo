@@ -32,7 +32,7 @@ where
         impl Visit for ToolCallsVisitor {
             fn record_debug(&mut self, _: &tracing::field::Field, _: &dyn std::fmt::Debug) {}
             fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
-
+                
                 if field.name() == "tool_calls" {
                     self.0 = Some(serde_json::from_str::<Vec<ToolCall>>(&value).unwrap_or_default());
                 }

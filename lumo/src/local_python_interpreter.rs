@@ -491,7 +491,7 @@ fn evaluate_python_code(
     }
 }
 
-#[derive(Debug, Default)]
+#[derive(Default)]
 pub struct LocalPythonInterpreter {
     static_tools: HashMap<&'static str, &'static str>,
     custom_tools: Option<Vec<Box<dyn AsyncTool>>>,

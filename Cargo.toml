@@ -1,5 +1,5 @@
 [workspace.package]
-version = "0.1.3"
+version = "0.1.2"
 edition = "2021"
 description = "A rust port of the the HuggingFace smolagents library. Build LLM agents with tools and code execution."
 license = "Apache-2.0"
@@ -42,8 +42,8 @@ console = "0.15"
 lumo = {path = "lumo"}
 
 # mcp
-mcp-client = {git = "https://github.com/modelcontextprotocol/rust-sdk"}
-mcp-core = {git = "https://github.com/modelcontextprotocol/rust-sdk"}
+mcp-client = {git = "https://github.com/block/goose.git"}
+mcp-core = {git = "https://github.com/block/goose.git"}
 tower = { version = "0.4", features = ["timeout", "util"] }
 tokio = {version = "1.43.0", features = ["rt-multi-thread", "macros"]}
 

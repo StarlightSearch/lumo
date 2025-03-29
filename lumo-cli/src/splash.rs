@@ -3,7 +3,7 @@ use colored::*;
 pub struct SplashScreen;
 
 impl SplashScreen {
-    pub fn display(config_path: &std::path::Path, servers: &[String]) {
+    pub fn display(config_path: &std::path::Path, servers: &[String], model_id: &str) {
         let logo = r#"
 $$\      $$\   $$\ $$\      $$\  $$$$$$\  
 $$ |     $$ |  $$ |$$$\    $$$ |$$  __$$\ 
@@ -19,30 +19,34 @@ $$$$$$$$\\$$$$$$  |$$ | \_/ $$ | $$$$$$  |
         let version = env!("CARGO_PKG_VERSION");
 
         println!("\n{}", logo.bright_cyan().bold());
-        
+
         println!("{}", "━".repeat(60).bright_blue());
-        println!("{}",
+        println!(
+            "{}",
             "Your AI-Powered Command Line Agent"
                 .centered(60)
                 .bright_white()
                 .italic()
         );
-        
-        println!("{} {}", 
-            "Version:".bright_yellow(),
-            version.bright_white()
-        );
 
-        println!("{} {}", 
+        println!("{} {}", "Version:".bright_yellow(), version.bright_white());
+
+        println!(
+            "{} {}",
             "Config:".bright_yellow(),
             config_path.display().to_string().bright_white()
+        );
+        println!(
+            "\n{} {}",
+            "Running Model:".bright_yellow(),
+            model_id.to_string().bright_white()
         );
 
         println!("\n{}", "Available MCP Servers:".bright_yellow());
         for server in servers {
             println!("  ├─ {}", server.bright_white());
         }
-        
+
         println!("{}", "━".repeat(60).bright_blue());
         println!(); // Empty line for spacing
     }

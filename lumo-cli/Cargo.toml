@@ -1,6 +1,6 @@
 [package]
 name = "lumo-cli"
-version = "0.1.0"
+version.workspace = true
 edition = "2021"
 description = "The CLI for running Lumo Agent"
 license.workspace = true
@@ -32,3 +32,4 @@ log.workspace = true
 chrono.workspace = true
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["fmt", "env-filter"] }
+ctrlc = "3.4"

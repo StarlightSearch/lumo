@@ -1,7 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
-use log::info;
 use std::{collections::HashMap, mem::ManuallyDrop};
+use tracing::{instrument, Span};
 
 use crate::{
     errors::{AgentError, InterpreterError},
@@ -12,7 +12,7 @@ use crate::{
         types::Message,
     },
     prompts::CODE_SYSTEM_PROMPT,
-    tools::AsyncTool,
+    tools::{AsyncTool, FinalAnswerTool},
 };
 
 use super::{agent_step::Step, agent_trait::Agent, multistep_agent::MultiStepAgent, AgentStep};
@@ -27,13 +27,14 @@ pub struct CodeAgent<M: Model> {
 }
 
 #[cfg(feature = "code-agent")]
-impl<M: Model + std::fmt::Debug + Send + Sync + 'static> CodeAgent<M> {
+impl<M: Model + Send + Sync + 'static> CodeAgent<M> {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
+        name: Option<&str>,
         model: M,
         tools: Vec<Box<dyn AsyncTool>>,
         system_prompt: Option<&str>,
-        managed_agents: Option<HashMap<String, Box<dyn Agent>>>,
+        managed_agents: Vec<Box<dyn Agent>>,
         description: Option<&str>,
         max_steps: Option<usize>,
         planning_interval: Option<usize>,
@@ -42,7 +43,8 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> CodeAgent<M> {
     ) -> Result<Self> {
         let system_prompt = system_prompt.unwrap_or(CODE_SYSTEM_PROMPT);
 
-        let base_agent = MultiStepAgent::new(
+        let mut base_agent = MultiStepAgent::new(
+            name,
             model,
             tools,
             Some(system_prompt),
@@ -54,6 +56,10 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> CodeAgent<M> {
             logging_level,
         )?;
 
+        let final_answer_tool = FinalAnswerTool::new();
+        base_agent.tools.push(Box::new(final_answer_tool));
+
+
         let local_python_interpreter = LocalPythonInterpreter::new(Some(&base_agent.tools), None);
 
         Ok(Self {
@@ -64,10 +70,11 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> CodeAgent<M> {
 }
 
 pub struct CodeAgentBuilder<'a, M: Model> {
+    name: Option<&'a str>,
     model: M,
     tools: Vec<Box<dyn AsyncTool>>,
     system_prompt: Option<&'a str>,
-    managed_agents: Option<HashMap<String, Box<dyn Agent>>>,
+    managed_agents: Vec<Box<dyn Agent>>,
     description: Option<&'a str>,
     max_steps: Option<usize>,
     planning_interval: Option<usize>,
@@ -75,19 +82,24 @@ pub struct CodeAgentBuilder<'a, M: Model> {
     logging_level: Option<log::LevelFilter>,
 }
 
-impl<'a, M: Model + std::fmt::Debug + Send + Sync + 'static> CodeAgentBuilder<'a, M> {
+impl<'a, M: Model + Send + Sync + 'static> CodeAgentBuilder<'a, M> {
     pub fn new(model: M) -> Self {
         Self {
+            name: None,
             model,
             tools: vec![],
             system_prompt: None,
-            managed_agents: None,
+            managed_agents: vec![],
             description: None,
             max_steps: None,
             planning_interval: None,
             history: None,
             logging_level: None,
         }
+    }
+    pub fn with_name(mut self, name: Option<&'a str>) -> Self {
+        self.name = name;
+        self
     }
     pub fn with_tools(mut self, tools: Vec<Box<dyn AsyncTool>>) -> Self {
         self.tools = tools;
@@ -97,10 +109,7 @@ impl<'a, M: Model + std::fmt::Debug + Send + Sync + 'static> CodeAgentBuilder<'a
         self.system_prompt = system_prompt;
         self
     }
-    pub fn with_managed_agents(
-        mut self,
-        managed_agents: Option<HashMap<String, Box<dyn Agent>>>,
-    ) -> Self {
+    pub fn with_managed_agents(mut self, managed_agents: Vec<Box<dyn Agent>>) -> Self {
         self.managed_agents = managed_agents;
         self
     }
@@ -126,6 +135,7 @@ impl<'a, M: Model + std::fmt::Debug + Send + Sync + 'static> CodeAgentBuilder<'a
     }
     pub fn build(self) -> Result<CodeAgent<M>> {
         CodeAgent::new(
+            self.name,
             self.model,
             self.tools,
             self.system_prompt,
@@ -141,9 +151,12 @@ impl<'a, M: Model + std::fmt::Debug + Send + Sync + 'static> CodeAgentBuilder<'a
 
 #[cfg(feature = "code-agent")]
 #[async_trait]
-impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for CodeAgent<M> {
+impl<M: Model  + Send + Sync + 'static> Agent for CodeAgent<M> {
     fn name(&self) -> &'static str {
         self.base_agent.name()
+    }
+    fn description(&self) -> &'static str {
+        self.base_agent.description()
     }
     fn get_max_steps(&self) -> usize {
         self.base_agent.get_max_steps()
@@ -165,6 +178,9 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for CodeAgent<M> 
     }
     fn set_task(&mut self, task: &str) {
         self.base_agent.set_task(task);
+    }
+    fn get_task(&self) -> &str {
+        self.base_agent.get_task()
     }
     fn get_system_prompt(&self) -> &str {
         self.base_agent.get_system_prompt()
@@ -188,9 +204,12 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for CodeAgent<M> 
     fn model(&self) -> &dyn Model {
         self.base_agent.model()
     }
-    async fn step(&mut self, log_entry: &mut Step) -> Result<Option<AgentStep>> {
+    #[instrument(skip(self, log_entry), fields(step = ?self.get_step_number()))]
+    async fn step(&mut self, log_entry: &mut Step) -> Result<Option<AgentStep>, AgentError> {
         let step_result = match log_entry {
             Step::ActionStep(step_log) => {
+                let span = Span::current();
+                span.record("step_type", "action");
                 let agent_memory = self.base_agent.write_inner_memory_from_logs(None)?;
                 self.base_agent.input_messages = Some(agent_memory.clone());
                 step_log.agent_memory = Some(agent_memory);
@@ -203,11 +222,11 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for CodeAgent<M> 
                         self.base_agent.history.clone(),
                         vec![],
                         None,
-                        None,
-                        // Some(HashMap::from([(
-                        //     "stop".to_string(),
-                        //     vec!["Observation:".to_string(), "<end_code>".to_string()],
-                        // )])),
+                        // None,
+                        Some(HashMap::from([(
+                            "stop".to_string(),
+                            vec!["Observation:".to_string(), "<end_code>".to_string()],
+                        )])),
                     )
                     .await?;
 
@@ -218,12 +237,12 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for CodeAgent<M> 
                     Ok(code) => code,
                     Err(e) => {
                         step_log.error = Some(e.clone());
-                        info!("Error: {}", response + "\n" + &e.to_string());
+                        tracing::info!("Error: {}", response + "\n" + &e.to_string());
                         return Ok(Some(step_log.clone()));
                     }
                 };
 
-                info!("Code: {}", code);
+                tracing::info!("Code: {}", code);
                 step_log.tool_call = Some(vec![ToolCall {
                     id: Some(format!("call_{}", nanoid::nanoid!())),
                     call_type: Some("function".to_string()),
@@ -232,6 +251,11 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for CodeAgent<M> 
                         arguments: serde_json::json!({ "code": code }),
                     },
                 }]);
+                tracing::info!(
+                    tool_calls= serde_json::to_string_pretty(&step_log.tool_call.clone().unwrap()).unwrap_or_default(),
+                    step = ?self.get_step_number(),
+                    "Executing tool call:"
+                );
                 let result = self.local_python_interpreter.forward(&code);
                 match result {
                     Ok(result) => {
@@ -250,7 +274,7 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for CodeAgent<M> 
                         } else {
                             observation = observation.to_string();
                         }
-                        info!("Observation: {}", observation);
+                        tracing::info!("Observation: {}", observation);
 
                         step_log.observations = Some(vec![observation]);
                     }
@@ -262,7 +286,7 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for CodeAgent<M> 
                         }
                         _ => {
                             step_log.error = Some(AgentError::Execution(e.to_string()));
-                            info!("Error: {}", e);
+                            tracing::info!("Error: {}", e);
                         }
                     },
                 }

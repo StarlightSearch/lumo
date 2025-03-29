@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::{collections::HashMap, io::Write};
 
 use crate::{
     errors::AgentError,
@@ -139,7 +139,7 @@ impl ModelResponse for OpenAIResponse {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct OpenAIServerModel {
     pub base_url: String,
     pub model_id: String,
@@ -256,7 +256,7 @@ impl Model for OpenAIServerModel {
 
         if !tools_to_call_from.is_empty() {
             body["tools"] = json!(tools_to_call_from);
-            body["tool_choice"] = json!("required");
+            body["tool_choice"] = json!("auto");
         }
 
         if let Some(args) = args {
@@ -266,7 +266,9 @@ impl Model for OpenAIServerModel {
             }
         }
 
-
+        let mut writer = std::fs::File::create("openai_body.json").unwrap();
+        writer.write_all(body.to_string().as_bytes()).unwrap();
+        
         let response = self
             .client
             .post(&self.base_url)

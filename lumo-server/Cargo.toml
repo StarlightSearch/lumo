@@ -10,10 +10,32 @@ repository.workspace = true
 
 [dependencies]
 actix-web = "4"
-lumo = {workspace = true, features = ["all"]}
+lumo = {workspace = true, features = ["stream"]}
 tokio.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 anyhow.workspace = true
 log.workspace = true
 actix-cors = "0.7.0"
+serde_yaml.workspace = true
+directories.workspace = true
+
+[features]
+code = ["lumo/code-agent"]
+mcp = ["lumo/mcp", "dep:mcp-core", "dep:mcp-client", "dep:tower"]
+
+[dependencies.mcp-core]
+workspace = true
+optional = true
+
+[dependencies.mcp-client]
+workspace = true
+optional = true
+
+[dependencies.tower]
+workspace = true
+optional = true
+
+[[bin]]
+name = "lumo-server"
+path = "src/main.rs"

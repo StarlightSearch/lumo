@@ -19,6 +19,7 @@ scraper.workspace = true
 terminal_size.workspace = true
 schemars.workspace = true
 chrono.workspace = true
+pdf = "0.8.1"
 rustpython-parser = {workspace= true, optional = true }
 pyo3 = { workspace = true, optional = true }
 regex.workspace = true
@@ -28,8 +29,8 @@ nanoid.workspace = true
 tracing = {workspace = true}
 
 # mcp
-mcp-client = {git = "https://github.com/modelcontextprotocol/rust-sdk", optional = true}
-mcp-core = {git = "https://github.com/modelcontextprotocol/rust-sdk", optional = true}
+mcp-client = {workspace = true, optional = true}
+mcp-core = {workspace = true, optional = true}
 tower = { workspace = true, features = ["timeout", "util"] , optional = true}
 tokio = {workspace = true, features = ["rt-multi-thread", "macros"], optional=true}
 async-stream = {workspace =true, optional = true}
