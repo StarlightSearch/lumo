@@ -7,7 +7,7 @@ use crate::models::types::{Message, MessageRole};
 use crate::prompts::{
     user_prompt_plan, SYSTEM_PROMPT_FACTS, SYSTEM_PROMPT_PLAN, TOOL_CALLING_SYSTEM_PROMPT,
 };
-use crate::tools::{AsyncTool, ToolGroup, ToolInfo};
+use crate::tools::{AsyncTool, FinalAnswerTool, ToolGroup, ToolInfo};
 use anyhow::Result;
 use async_trait::async_trait;
 use colored::Colorize;
@@ -175,7 +175,7 @@ where
     pub fn new(
         name: Option<&str>,
         model: M,
-        tools: Vec<Box<dyn AsyncTool>>,
+        mut tools: Vec<Box<dyn AsyncTool>>,
         system_prompt: Option<&str>,
         managed_agents: Vec<Box<dyn Agent>>,
         description: Option<&str>,
@@ -203,8 +203,8 @@ where
             None => "A multi-step agent that can solve tasks using a series of tools".to_string(),
         };
 
-        // let final_answer_tool = FinalAnswerTool::new();
-        // tools.push(Box::new(final_answer_tool));
+        let final_answer_tool = FinalAnswerTool::new();
+        tools.push(Box::new(final_answer_tool));
 
 
         let mut agent = MultiStepAgent {

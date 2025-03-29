@@ -195,7 +195,7 @@ async fn run_task(
 pub fn run(listener: TcpListener) -> std::io::Result<Server> {
     Ok(HttpServer::new(move || {
         let cors = Cors::default()
-            .allowed_origin("http://localhost:5173")
+            .allow_any_origin()
             .allowed_methods(vec!["GET", "POST"])
             .allowed_headers(vec![header::AUTHORIZATION, header::ACCEPT, header::CONTENT_TYPE])
             .max_age(3600);

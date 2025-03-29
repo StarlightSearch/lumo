@@ -4,6 +4,8 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
+![](https://res.cloudinary.com/dltwftrgc/image/upload/c_fill,h_350,q_auto,r_30,w_1572/v1742300613/Gemini_Generated_Image_bg0xbfbg0xbfbg0x_ha3fs5.png)
+
 A powerful autonomous agent framework written in Rust that leverages LLMs to solve complex tasks using tools and reasoning.
 
 [Installation](#-quick-start) • [Documentation](#-usage) • [Examples](#-examples)
@@ -45,6 +47,7 @@ Lumo is a Rust implementation of the [smolagents](https://github.com/huggingface
 - [x] OpenAI Models (e.g., GPT-4o, GPT-4o-mini)
 - [x] Ollama Integration
 - [x] Gemini Integration
+- [ ] Anthropic Claude Integration
 - [ ] Hugging Face API support
 - [ ] Open-source model integration via Candle 
 
@@ -101,11 +104,13 @@ You need to set the API key as an environment variable or pass it as an argument
 
 ```bash
 # Pull the image
-docker pull your-username/lumo:latest
+docker pull akshayballal95/lumo-cli:latest
 
 # Run with your API key
-docker run -e OPENAI_API_KEY=your-key-here lumo
+docker run -it -e OPENAI_API_KEY=your-key-here lumo-cli
 ```
+
+The default model is Gemini-2.0-Flash
 
 ---
 
@@ -115,34 +120,17 @@ docker run -e OPENAI_API_KEY=your-key-here lumo
 lumo [OPTIONS]
 
 Options:
-  -a, --agent-type <TYPE>    Agent type. Options: function-calling, code, mcp [default: function-calling]
+  -t, --task <TASK>          The task to execute
+  -a, --agent-type <TYPE>    Agent type. Options: function-calling, code [default: function-calling]
   -l, --tools <TOOLS>        Comma-separated list of tools. Options: google-search, duckduckgo, visit-website, python-interpreter [default: duckduckgo,visit-website]
-  -m, --model-type <TYPE>    Model type. Options: openai, ollama, gemini [default: gemini]
-  -k, --api-key <KEY>        LLM Provider API key
-  --model-id <ID>            Model ID (e.g., "gpt-4" for OpenAI, "qwen2.5" for Ollama, or "gemini-2.0-flash" for Gemini) [default: gemini-2.0-flash]
-  -b, --base-url <URL>       Base URL for the API
-  --max-steps <N>            Maximum number of steps to take [default: 10]
-  -p, --planning-interval <N> Planning interval
-  -v, --logging-level <LEVEL> Logging level
+  -m, --model <TYPE>         Model type [default: open-ai]
+  -k, --api-key <KEY>        LLM Provider API key (only required for OpenAI model)
+  --model-id <ID>            Model ID (e.g., "gpt-4" for OpenAI or "qwen2.5" for Ollama) [default: gpt-4o-mini]
+  -s, --stream               Enable streaming output
+  -b, --base-url <URL>       Base URL for the API [default: https://api.openai.com/v1/chat/completions]
   -h, --help                 Print help
 ```
 
----
-
-## 🌟 Examples
-
-```bash
-# Basic usage with default settings
-lumo
-
-# Using specific model and tools
-lumo -m ollama --model-id qwen2.5 -l duckduckgo,google-search
-
-# Using OpenAI with custom base URL
-lumo -m openai --model-id gpt-4 -b "https://your-custom-url.com/v1"
-```
-
----
 
 ## 🔧 Configuration
 
@@ -180,6 +168,80 @@ system_prompt: |-
 ```
 
 ---
+
+## 🖥️ Server Usage
+
+Lumo can also be run as a server, providing a REST API for agent interactions.
+
+### Starting the Server
+
+#### Using Binary
+```bash
+# Start the server (default port: 8080)
+lumo-server
+```
+
+#### Using Docker
+```bash
+# Build the image
+docker build -f server.Dockerfile -t lumo-server .
+
+# Run the container with required API keys
+docker run -p 8080:8080 \
+  -e OPENAI_API_KEY=your-openai-key \
+  -e GOOGLE_API_KEY=your-google-key \
+  -e GROQ_API_KEY=your-groq-key \
+  -e ANTHROPIC_API_KEY=your-anthropic-key \
+  -e EXA_API_KEY=your-exa-key \
+  lumo-server
+```
+
+You can also use the pre-built image:
+```bash
+docker pull akshayballal95/lumo-server:latest
+```
+
+### API Endpoints
+
+#### Health Check
+```bash
+curl http://localhost:8080/health_check
+```
+
+#### Run Task
+```bash
+curl -X POST http://localhost:8080/run \
+  -H "Content-Type: application/json" \
+  -d '{
+    "task": "What is the weather in London?",
+    "model": "gpt-4o-mini",
+    "base_url": "https://api.openai.com/v1/chat/completions",
+    "tools": ["DuckDuckGo", "VisitWebsite"],
+    "max_steps": 5,
+    "agent_type": "function-calling"
+  }'
+```
+
+#### Request Body Parameters
+
+- `task` (required): The task to execute
+- `model` (required): Model ID (e.g., "gpt-4", "qwen2.5", "gemini-2.0-flash")
+- `base_url` (required): Base URL for the API
+- `tools` (optional): Array of tool names to use
+- `max_steps` (optional): Maximum number of steps to take
+- `agent_type` (optional): Type of agent to use ("function-calling" or "mcp")
+- `history` (optional): Array of previous messages for context
+
+The server automatically detects the appropriate API key based on the base_url:
+- OpenAI URLs use `OPENAI_API_KEY`
+- Google URLs use `GOOGLE_API_KEY`
+- Groq URLs use `GROQ_API_KEY`
+- Anthropic URLs use `ANTHROPIC_API_KEY`
+
+### CORS
+
+The server includes CORS support for local development (default origin: http://localhost:5173).
+
 
 ## 🤝 Contributing
 
