@@ -89,9 +89,9 @@ async fn run_task(
     req: Json<RunTaskRequest>,
 ) -> Result<impl Responder, actix_web::Error> {
     // use base url to get the right key from environment variables. if base url has openai, use openai key, if it has google, use google key, if it has groq, use groq key, if it has anthropic, use anthropic key
-    let api_key = if req.base_url.to_lowercase().contains("openai") {
+    let api_key = if req.base_url== "https://api.openai.com/v1/chat/completions" {
         std::env::var("OPENAI_API_KEY").ok()
-    } else if req.base_url.to_lowercase().contains("google") {
+    } else if req.base_url=="https://generativelanguage.googleapis.com/v1beta/openai/chat/completions" {
         std::env::var("GOOGLE_API_KEY").ok()
     } else if req.base_url.to_lowercase().contains("groq") {
         std::env::var("GROQ_API_KEY").ok()
@@ -101,6 +101,7 @@ async fn run_task(
         None
     };
 
+    println!("api_key: {:?}", api_key);
     let model = OpenAIServerModelBuilder::new(&req.model)
         .with_base_url(Some(&req.base_url))
         .with_api_key(api_key.as_deref())

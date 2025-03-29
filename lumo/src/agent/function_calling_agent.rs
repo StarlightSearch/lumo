@@ -276,8 +276,6 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                 if let Ok(response) = model_message.get_response() {
                     if !response.trim().is_empty() {
                         if let Ok(action) = parse_response(&response) {
-                            println!("response: {}", response);
-
                             tools = vec![ToolCall {
                                 id: Some(format!("call_{}", nanoid::nanoid!())),
                                 call_type: Some("function".to_string()),
@@ -286,6 +284,10 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                                     arguments: action["arguments"].clone(),
                                 },
                             }];
+                            tracing::info!(
+                                tool_calls = serde_json::to_string_pretty(&tools).unwrap_or_default(),
+                                "Agent selected tools"
+                            );
                             step_log.tool_call = Some(tools.clone());
                         }
                     }
@@ -458,11 +460,10 @@ mod tests {
 
     #[test]
     fn test_parse_response() {
-        let response = r#"<tool_call>
-{"name": "final_answer", "arguments": {"answer": "The current stock prices for Nvidia (NVDA) and Apple (AAPL) are as follows:
+        let response = r#"Okay, let's check the weather in Eindhoven.
 
-- NVIDIA Corporation (NVDA): The last close price is $115.74 with a 52-week range of $75.61 - $153.13, and the market capitalization is $2.811T.
-- Apple Inc (AAPL): The stock quote is $227.56."}}
+<tool_call>
+{"name": "search", "arguments": {"query": "weather in eindhoven"}}
 </tool_call>"#;
         let json_str = parse_response(response).unwrap();
         println!(

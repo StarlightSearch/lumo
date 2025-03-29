@@ -143,7 +143,7 @@ impl GeminiServerModel {
         history: Option<Vec<Message>>,
     ) -> Self {
         let api_key = api_key.unwrap_or_else(|| {
-            std::env::var("GEMINI_API_KEY").expect("GEMINI_API_KEY must be set")
+            std::env::var("GOOGLE_API_KEY").expect("GOOGLE_API_KEY must be set")
         });
         let model_id = model_id.unwrap_or("gemini-2.0-flash").to_string();
         let default_base_url = format!(

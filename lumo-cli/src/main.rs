@@ -206,7 +206,7 @@ async fn main() -> Result<()> {
                 )))
                 .with_api_key(Some(
                     args.api_key.as_deref().unwrap_or(
-                        &std::env::var("GEMINI_API_KEY")
+                        &std::env::var("GOOGLE_API_KEY")
                             .unwrap_or_else(|_| "Gemini API key not found".to_string()),
                     ),
                 ))

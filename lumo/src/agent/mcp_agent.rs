@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use crate::{
-    errors::AgentError, models::{model_traits::Model, types::Message}, prompts::TOOL_CALLING_SYSTEM_PROMPT, tools::{ToolFunctionInfo, ToolGroup, ToolInfo, ToolType}
+    agent::parse_response, errors::AgentError, models::{model_traits::Model, openai::{FunctionCall, ToolCall}, types::Message}, prompts::TOOL_CALLING_SYSTEM_PROMPT, tools::{ToolFunctionInfo, ToolGroup, ToolInfo, ToolType}
 };
 use anyhow::Result;
 use async_trait::async_trait;
@@ -329,7 +329,7 @@ where
 
                 step_log.llm_output = Some(model_message.get_response().unwrap_or_default());
                 let mut observations = Vec::new();
-                let tools = model_message.get_tools_used()?;
+                let mut tools = model_message.get_tools_used()?;
                 step_log.tool_call = Some(tools.clone());
 
                 tracing::info!(
@@ -339,9 +339,27 @@ where
                 );
 
                 if let Ok(response) = model_message.get_response() {
+                    if !response.trim().is_empty() {
+                        if let Ok(action) = parse_response(&response) {
+                            tools = vec![ToolCall {
+                                id: Some(format!("call_{}", nanoid::nanoid!())),
+                                call_type: Some("function".to_string()),
+                                function: FunctionCall {
+                                    name: action["name"].as_str().unwrap_or_default().to_string(),
+                                    arguments: action["arguments"].clone(),
+                                },
+                            }];
+                            tracing::info!(
+                                tool_calls = serde_json::to_string_pretty(&tools).unwrap_or_default(),
+                                "Agent selected tools"
+                            );
+                            step_log.tool_call = Some(tools.clone());
+                        }
+                    }
                     if tools.is_empty() {
-                        step_log.observations = Some(vec![response.clone()]);
+                        self.base_agent.write_inner_memory_from_logs(None)?;
                         step_log.final_answer = Some(response.clone());
+                        step_log.observations = Some(vec![response.clone()]);
                         return Ok(Some(step_log.clone()));
                     }
                 }
