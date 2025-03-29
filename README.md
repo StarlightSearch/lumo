@@ -123,17 +123,32 @@ The default model is Gemini-2.0-Flash
 lumo [OPTIONS]
 
 Options:
-  -t, --task <TASK>          The task to execute
-  -a, --agent-type <TYPE>    Agent type. Options: function-calling, code [default: function-calling]
+  -a, --agent-type <TYPE>    Agent type. Options: function-calling, code, mcp [default: function-calling]
   -l, --tools <TOOLS>        Comma-separated list of tools. Options: google-search, duckduckgo, visit-website, python-interpreter [default: duckduckgo,visit-website]
-  -m, --model <TYPE>         Model type [default: open-ai]
-  -k, --api-key <KEY>        LLM Provider API key (only required for OpenAI model)
-  --model-id <ID>            Model ID (e.g., "gpt-4" for OpenAI or "qwen2.5" for Ollama) [default: gpt-4o-mini]
-  -s, --stream               Enable streaming output
-  -b, --base-url <URL>       Base URL for the API [default: https://api.openai.com/v1/chat/completions]
+  -m, --model-type <TYPE>    Model type. Options: openai, ollama, gemini [default: gemini]
+  -k, --api-key <KEY>        LLM Provider API key
+  --model-id <ID>            Model ID (e.g., "gpt-4" for OpenAI, "qwen2.5" for Ollama, or "gemini-2.0-flash" for Gemini) [default: gemini-2.0-flash]
+  -b, --base-url <URL>       Base URL for the API
+  --max-steps <N>            Maximum number of steps to take [default: 10]
+  -p, --planning-interval <N> Planning interval
+  -v, --logging-level <LEVEL> Logging level
   -h, --help                 Print help
 ```
 
+Example commands:
+```bash
+# Using Gemini (default)
+lumo -k your-gemini-key
+
+# Using OpenAI with specific model
+lumo -m openai --model-id gpt-4 -k your-openai-key
+
+# Using Ollama with local model
+lumo -m ollama --model-id qwen2.5 -b http://localhost:11434
+
+# Using specific tools and agent type
+lumo -a code -l duckduckgo,python-interpreter
+```
 
 ## 🔧 Configuration
 
