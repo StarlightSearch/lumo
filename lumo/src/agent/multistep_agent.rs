@@ -7,7 +7,7 @@ use crate::models::types::{Message, MessageRole};
 use crate::prompts::{
     user_prompt_plan, SYSTEM_PROMPT_FACTS, SYSTEM_PROMPT_PLAN, TOOL_CALLING_SYSTEM_PROMPT,
 };
-use crate::tools::{AsyncTool, FinalAnswerTool, ToolGroup, ToolInfo};
+use crate::tools::{AsyncTool, ToolGroup, ToolInfo};
 use anyhow::Result;
 use async_trait::async_trait;
 use colored::Colorize;
@@ -175,7 +175,7 @@ where
     pub fn new(
         name: Option<&str>,
         model: M,
-        mut tools: Vec<Box<dyn AsyncTool>>,
+        tools: Vec<Box<dyn AsyncTool>>,
         system_prompt: Option<&str>,
         managed_agents: Vec<Box<dyn Agent>>,
         description: Option<&str>,

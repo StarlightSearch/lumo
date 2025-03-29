@@ -208,14 +208,14 @@ pub trait Agent: Send + Sync {
                                 tool_calls: None,
                             });
 
-                            if let Some(task) = &step_log.task {
-                                memory.push(Message {
-                                    role: MessageRole::User,
-                                    content: format!("Given the observation, if you have enough information, please provide the answer. Otherwise, use a tool to get more information, The original task is: {}", task),
-                                    tool_call_id: None,
-                                    tool_calls: None,
-                                });
-                            }
+                            // if let Some(task) = &step_log.task {
+                            //     memory.push(Message {
+                            //         role: MessageRole::User,
+                            //         content: format!("Given the observation, if you have enough information, please provide the answer. Otherwise, use a tool to get more information, The original task is: {}", task),
+                            //         tool_call_id: None,
+                            //         tool_calls: None,
+                            //     });
+                            // }
                         }
                     } else if let Some(observations) = &step_log.observations {
                         memory.push(Message {

@@ -1,5 +1,4 @@
 use anyhow::{Context, Result, anyhow};
-use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
@@ -37,11 +36,6 @@ impl Servers {
     pub fn load() -> Result<Self> {
         let config_path = Self::config_path()?;
         
-        // If config file doesn't exist, create it with defaults
-        if !config_path.exists() {
-            Self::create_default_config(&config_path)?;
-        }
-
         // Read and parse the config file
         let config_str = fs::read_to_string(&config_path)
             .with_context(|| format!("Failed to read config file: {:?}", config_path))?;
@@ -67,21 +61,9 @@ impl Servers {
         Ok(())
     }
 
-    fn create_default_config(path: &PathBuf) -> Result<()> {
-        // Create parent directories if they don't exist
-        if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent)?;
-        }
-        
-        // Write default configuration
-        let default_config = include_str!("config/servers.yaml");
-        fs::write(path, default_config)?;
-        
-        Ok(())
-    }
 
     pub fn config_path() -> Result<PathBuf> {
-        Ok(PathBuf::from("config/servers.yaml"))
+        Ok(PathBuf::from("src/config/servers.yaml"))
     }
 
 } 

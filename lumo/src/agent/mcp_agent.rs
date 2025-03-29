@@ -287,7 +287,7 @@ where
                 self.base_agent.input_messages = Some(agent_memory.clone());
                 step_log.agent_memory = Some(agent_memory.clone());
 
-                let mut tools = self
+                let tools = self
                     .tools
                     .iter()
                     .cloned()
@@ -361,7 +361,7 @@ where
                             tracing::info!(
                                 tool = %function_name,
                                 args = ?tool.function.arguments,
-                                "Executing tool call"
+                                "Executing tool call:"
                             );
 
                             let mut futures = Vec::new();

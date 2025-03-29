@@ -14,3 +14,26 @@ Cargo.lock
 *.pdb
 
 # RustRover
+
+# Git
+.git
+.gitignore
+
+# Rust
+target/
+Cargo.lock
+
+# Editor files
+.vscode/
+.idea/
+
+# Environment files
+.env
+*.env
+
+# Logs
+*.log
+
+# OS specific
+.DS_Store
+Thumbs.db 

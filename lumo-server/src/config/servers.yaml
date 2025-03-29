@@ -11,16 +11,16 @@
 #   env: null
 
 exa-search:
-  command: "C:/Program Files/nodejs/node.exe"
+  command: npx
   args:
-   - "C:/Users/arbal/AppData/Roaming/npm/node_modules/exa-mcp-server/build/index.js"
+    - "exa-mcp-server"
   env: 
     EXA_API_KEY: "8aff8f33-e5b8-49c2-809e-06726110fba8"
 
 fetch:
-  command: "uvx"
+  command: uvx
   args:
-   - "mcp-server-fetch"
+    - "mcp-server-fetch"
 
 
 # obsidian:

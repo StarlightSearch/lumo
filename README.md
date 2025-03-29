@@ -1,20 +1,39 @@
 # 🤖 lumo 
 
-This is a rust implementation of HF [smolagents](https://github.com/huggingface/smolagents) library. It provides a powerful autonomous agent framework written in Rust that solves complex tasks using tools and LLM models. 
+<div align="center">
 
----
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+A powerful autonomous agent framework written in Rust that leverages LLMs to solve complex tasks using tools and reasoning.
+
+[Installation](#-quick-start) • [Documentation](#-usage) • [Examples](#-examples)
+
+</div>
+
+## 🎯 Overview
+
+Lumo is a Rust implementation of the [smolagents](https://github.com/huggingface/smolagents) library, designed to create intelligent agents that can autonomously solve complex tasks. Built with performance and safety in mind, it provides a robust framework for building AI-powered applications.
+
+### Why Lumo?
+
+- 🚀 **High Performance**: Written in Rust for maximum speed and reliability
+- 🛡️ **Type Safety**: Leverages Rust's type system for compile-time guarantees
+- 🔄 **Interactive Mode**: Run tasks interactively with real-time feedback
+- 🎯 **Task-Oriented**: Focused on solving real-world problems with AI
+- 🔌 **Extensible**: Easy to add new tools and integrate with different LLM providers
 
 ## ✨ Features
 
-- 🧠 **Function-Calling Agent Architecture**: Implements the ReAct framework for advanced reasoning and action.
+- 🧠 **Function-Calling Agent Architecture**: Implements the ReAct framework for advanced reasoning and action
 - 🔍 **Built-in Tools**:
   - Google Search
   - DuckDuckGo Search
   - Website Visit & Scraping
-- 🤝 **OpenAI Integration**: Works seamlessly with GPT models.
-- 🎯 **Task Execution**: Enables autonomous completion of complex tasks.
-- 🔄 **State Management**: Maintains persistent state across steps.
-- 📊 **Beautiful Logging**: Offers colored terminal output for easy debugging.
+  - Python Interpreter
+- 🤝 **Multiple Model Support**: Works with OpenAI, Ollama, and Gemini models
+- 🎯 **Task Execution**: Enables autonomous completion of complex tasks
+- 🔄 **State Management**: Maintains persistent state across steps
+- 📊 **Beautiful Logging**: Offers colored terminal output for easy debugging
 
 ---
 
@@ -24,8 +43,9 @@ This is a rust implementation of HF [smolagents](https://github.com/huggingface/
 
 ### Models
 
-- [x] OpenAI Models (e.g., GPT-4o, GPT-4o-mini)
+- [x] OpenAI Models (e.g., GPT-4, GPT-4-mini)
 - [x] Ollama Integration
+- [x] Gemini Integration
 - [ ] Hugging Face API support
 - [ ] Open-source model integration via Candle 
 
@@ -35,6 +55,7 @@ You can use models like Groq, TogetherAI using the same API as OpenAI. Just give
 
 - [x] Tool-Calling Agent
 - [x] CodeAgent
+- [x] MCP Agent
 - [ ] Planning Agent
 - [ ] Multi-Agent Support
 
@@ -45,6 +66,7 @@ The code agent is still in development, so there might be python code that is no
 - [x] Google Search Tool
 - [x] DuckDuckGo Tool
 - [x] Website Visit & Scraping Tool
+- [x] Python Interpreter Tool
 - [ ] RAG Tool
 - More tools to come...
 
@@ -60,46 +82,49 @@ The code agent is still in development, so there might be python code that is no
 
 ### CLI Usage
 
-Warning: Since there is no implementation of a Sandbox environment, be careful with the tools you use. Preferrably run the agent in a controlled environment using a Docker container.
+Warning: Since there is no implementation of a Sandbox environment, be careful with the tools you use. Preferably run the agent in a controlled environment using a Docker container.
 
 #### Using Cargo
 
 ```bash
-cargo install smolagents-rs --all-features
+cargo install lumo --all-features
 ```
 
 ```bash
-smolagents-rs -t "Your task here"
+lumo
 ```
-You need to set the API key as an environment variable. Otherwise you can pass it as an argument.
+
+You'll be prompted to enter your task interactively. Type 'exit' to quit the program.
+
+You need to set the API key as an environment variable or pass it as an argument.
 
 #### Using Docker
 
 ```bash
 # Pull the image
-docker pull your-username/smolagents-rs:latest
+docker pull your-username/lumo:latest
 
-# Run with your OpenAI API key
-docker run -e OPENAI_API_KEY=your-key-here smolagents-rs -t "What is the latest news about Rust programming?"
+# Run with your API key
+docker run -e OPENAI_API_KEY=your-key-here lumo
 ```
 
 ---
 
-
 ## 🛠️ Usage
 
 ```bash
-smolagents-rs [OPTIONS] -t TASK
+lumo [OPTIONS]
 
 Options:
-  -t, --task <TASK>          The task to execute
-  -a, --agent-type <TYPE>    Agent type. Options: function-calling, code [default: function-calling]
+  -a, --agent-type <TYPE>    Agent type. Options: function-calling, code, mcp [default: function-calling]
   -l, --tools <TOOLS>        Comma-separated list of tools. Options: google-search, duckduckgo, visit-website, python-interpreter [default: duckduckgo,visit-website]
-  -m, --model <TYPE>         Model type [default: open-ai]
-  -k, --api-key <KEY>        LLM Provider API key (only required for OpenAI model)
-  --model-id <ID>            Model ID (e.g., "gpt-4" for OpenAI or "qwen2.5" for Ollama) [default: gpt-4o-mini]
-  -s, --stream               Enable streaming output
-  -b, --base-url <URL>       Base URL for the API [default: https://api.openai.com/v1/chat/completions]
+  -m, --model-type <TYPE>    Model type. Options: openai, ollama, gemini [default: gemini]
+  -k, --api-key <KEY>        LLM Provider API key
+  --model-id <ID>            Model ID (e.g., "gpt-4" for OpenAI, "qwen2.5" for Ollama, or "gemini-2.0-flash" for Gemini) [default: gemini-2.0-flash]
+  -b, --base-url <URL>       Base URL for the API
+  --max-steps <N>            Maximum number of steps to take [default: 10]
+  -p, --planning-interval <N> Planning interval
+  -v, --logging-level <LEVEL> Logging level
   -h, --help                 Print help
 ```
 
@@ -108,35 +133,64 @@ Options:
 ## 🌟 Examples
 
 ```bash
-# Simple search task
-smolagents-rs -t "What are the main features of Rust 1.75?"
+# Basic usage with default settings
+lumo
 
-# Research with multiple tools
-smolagents-rs -t "Compare Rust and Go performance" -l duckduckgo,google-search,visit-website
+# Using specific model and tools
+lumo -m ollama --model-id qwen2.5 -l duckduckgo,google-search
 
-# Stream output for real-time updates
-smolagents-rs -t "Analyze the latest crypto trends" -s
+# Using OpenAI with custom base URL
+lumo -m openai --model-id gpt-4 -b "https://your-custom-url.com/v1"
 ```
+
 ---
 
 ## 🔧 Configuration
 
 ### Environment Variables
 
-- `OPENAI_API_KEY`: Your OpenAI API key (optional, if you want to use OpenAI model).
-- `SERPAPI_API_KEY`: Google Search API key (optional, if you want to use Google Search Tool).
+- `OPENAI_API_KEY`: Your OpenAI API key (optional, if using OpenAI model)
+- `GEMINI_API_KEY`: Your Gemini API key (optional, if using Gemini model)
+- `SERPAPI_API_KEY`: Google Search API key (optional, if using Google Search Tool)
 
+### Server Configuration
+
+You can configure multiple servers in the configuration file for MCP agent usage. The configuration file location varies by operating system:
+
+- **Linux**: `~/.config/lumo-cli/servers.yaml`
+- **macOS**: `~/Library/Application Support/lumo-cli/servers.yaml`
+- **Windows**: `%APPDATA%\Roaming\lumo\lumo-cli\servers.yaml`
+
+Example configuration:
+```yaml
+exa-search:
+  command: npx
+  args:
+    - "exa-mcp-server"
+  env: 
+    EXA_API_KEY: "your-api-key"
+
+fetch:
+  command: python3
+  args:
+    - "-m"
+    - "mcp_server_fetch"
+
+system_prompt: |-
+  You are a powerful agentic AI assistant...
+```
+
+---
 
 ## 🤝 Contributing
 
 Contributions are welcome! To contribute:
 
-1. Fork the repository.
-2. Create your feature branch (`git checkout -b feature/amazing-feature`).
-3. Commit your changes (`git commit -m 'Add some amazing feature'`).
-4. Push to the branch (`git push origin feature/amazing-feature`).
-5. Open a Pull Request.
-
+1. Fork the repository
+2. Create your feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add some amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
 ---
 

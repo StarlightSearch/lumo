@@ -13,15 +13,15 @@ RUN cargo chef cook --release --recipe-path recipe.json
 # Build application
 COPY . .
 # Build with minimal features and optimize for size
-RUN cargo build --release --bin smolagents-rs --features cli-deps \
-    && strip /app/target/release/smolagents-rs
+RUN cargo build --release \
+    && strip /app/target/release/lumo
 
 # Use distroless as runtime image
 FROM gcr.io/distroless/cc-debian12 AS runtime
 WORKDIR /app
 # Copy only the binary
-COPY --from=builder /app/target/release/smolagents-rs /usr/local/bin/
+COPY --from=builder /app/target/release/lumo /usr/local/bin/
 # Create config directory
-WORKDIR /root/.config/smolagents-rs
+WORKDIR /root/.config/lumo
 
-ENTRYPOINT ["/usr/local/bin/smolagents-rs"]
+ENTRYPOINT ["/usr/local/bin/lumo"]
