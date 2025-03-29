@@ -2,8 +2,7 @@ use actix_web::body::EitherBody;
 use actix_web::dev::{ServiceResponse, Transform};
 use actix_web::{dev::ServiceRequest, Error, HttpResponse};
 use actix_web::http::header;
-use futures::future::{ok, Either, Ready};
-use futures::{FutureExt, TryFutureExt};
+use futures::TryFutureExt;
 use serde_json::json;
 use std::future::{ready, Future};
 use std::pin::Pin;
@@ -27,6 +26,10 @@ impl ApiKeyAuth {
             }
             None => Ok(false),
         }
+    }
+
+    fn is_auth_enabled() -> bool {
+        std::env::var("ENABLE_AUTH").map(|v| v == "true").unwrap_or(false)
     }
 }
 
@@ -71,27 +74,29 @@ where
             return Box::pin(self.service.call(req).map_ok(|res| res.map_into_left_body()));
         }
 
+        // If auth is disabled, pass through all requests
+        if !ApiKeyAuth::is_auth_enabled() {
+            return Box::pin(self.service.call(req).map_ok(|res| res.map_into_left_body()));
+        }
+
+        // Validate API key
         match ApiKeyAuth::validate_api_key(&req) {
             Ok(true) => Box::pin(self.service.call(req).map_ok(|res| res.map_into_left_body())),
             Ok(false) => {
                 let (http_req, _payload) = req.into_parts();
-                
                 let response = HttpResponse::Unauthorized()
                     .json(json!({
                         "error": "Invalid or missing API key"
                     }));
-                
                 let srv_resp = ServiceResponse::new(http_req, response).map_into_right_body();
                 Box::pin(ready(Ok(srv_resp)))
             }
             Err(e) => {
                 let (http_req, _payload) = req.into_parts();
-                
                 let response = HttpResponse::InternalServerError()
                     .json(json!({
                         "error": e.to_string()
                     }));
-                
                 let srv_resp = ServiceResponse::new(http_req, response).map_into_right_body();
                 Box::pin(ready(Ok(srv_resp)))
             }

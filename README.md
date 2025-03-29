@@ -203,7 +203,6 @@ docker build -f server.Dockerfile -t lumo-server .
 
 # Run the container with required API keys
 docker run -p 8080:8080 \
-  -e LUMO_API_KEY=your-server-api-key \
   -e OPENAI_API_KEY=your-openai-key \
   -e GOOGLE_API_KEY=your-google-key \
   -e GROQ_API_KEY=your-groq-key \
@@ -219,7 +218,6 @@ docker pull akshayballal95/lumo-server:latest
 
 # Run with all required API keys
 docker run -p 8080:8080 \
-  -e LUMO_API_KEY=your-server-api-key \
   -e OPENAI_API_KEY=your-openai-key \
   -e GOOGLE_API_KEY=your-google-key \
   -e GROQ_API_KEY=your-groq-key \
@@ -285,9 +283,9 @@ Give a ⭐️ if this project helps you or inspires your work!
 
 ## 🔒 Security
 
-### API Key Authentication
+### API Key Management
 
-The server requires API key authentication for all endpoints except `/health_check`. This helps protect your server from unauthorized access.
+The server requires API keys for the LLM providers you plan to use. These keys are used to authenticate with the respective model APIs.
 
 #### Setting Up API Keys
 
@@ -296,12 +294,7 @@ The server requires API key authentication for all endpoints except `/health_che
 cp lumo-server/.env.example lumo-server/.env
 ```
 
-2. Set your server API key in the `.env` file:
-```bash
-LUMO_API_KEY=your-secure-api-key-here
-```
-
-3. Set any required model API keys based on which models you plan to use:
+2. Set your model API keys in the `.env` file:
 ```bash
 OPENAI_API_KEY=your-openai-key
 GOOGLE_API_KEY=your-google-key
@@ -309,30 +302,3 @@ GROQ_API_KEY=your-groq-key
 ANTHROPIC_API_KEY=your-anthropic-key
 EXA_API_KEY=your-exa-key
 ```
-
-#### Using the API
-
-When making requests to the server, include your API key in the Authorization header:
-```bash
-curl -X POST http://localhost:8080/run \
-  -H "Authorization: Bearer your-server-api-key" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "task": "What is the weather in London?",
-    "model": "gpt-4o-mini",
-    "base_url": "https://api.openai.com/v1/chat/completions",
-    "tools": ["DuckDuckGo", "VisitWebsite"],
-    "max_steps": 5,
-    "agent_type": "function-calling"
-  }'
-```
-
-#### Security Best Practices
-
-1. Never commit your `.env` file or any files containing API keys to version control
-2. Use strong, randomly generated API keys
-3. Rotate API keys periodically
-4. Use HTTPS in production to protect API keys in transit
-5. Consider implementing rate limiting for additional security
-6. Monitor API usage for suspicious activity
-
