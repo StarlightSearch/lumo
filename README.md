@@ -26,7 +26,7 @@ Lumo is a Rust implementation of the [smolagents](https://github.com/huggingface
 
 ## ✨ Features
 
-- 🧠 **Function-Calling Agent Architecture**: Implements the ReAct framework for advanced reasoning and action
+- 🧠 **Function-Calling and CodeAgent**: Implements the ReAct and CodeACT framework for advanced reasoning and action
 - 🔍 **Built-in Tools**:
   - Google Search
   - DuckDuckGo Search
@@ -86,19 +86,22 @@ You can use models like Groq, TogetherAI using the same API as OpenAI. Just give
 
 Warning: Since there is no implementation of a Sandbox environment, be careful with the tools you use. Preferably run the agent in a controlled environment using a Docker container.
 
-#### Using Cargo
-
+#### From Source
+1. Build
 ```bash
-cargo install lumo --all-features
+cargo build --release
 ```
 
+2. Run
 ```bash
-lumo
+target/release/lumo
 ```
 
 You'll be prompted to enter your task interactively. Type 'exit' to quit the program.
 
 You need to set the API key as an environment variable or pass it as an argument.
+
+You can add the binary to your path to access it from your terminal using `lumo` command. 
 
 #### Using Docker
 
@@ -158,9 +161,8 @@ exa-search:
     EXA_API_KEY: "your-api-key"
 
 fetch:
-  command: python3
+  command: uvx
   args:
-    - "-m"
     - "mcp_server_fetch"
 
 system_prompt: |-
