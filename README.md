@@ -37,13 +37,12 @@ Lumo is a Rust implementation of the [smolagents](https://github.com/huggingface
 
 ---
 
-![demo](https://res.cloudinary.com/dltwftrgc/image/upload/v1737485304/smolagents-small_fmaikq.gif)
 
 ## ✅ Feature Checklist
 
 ### Models
 
-- [x] OpenAI Models (e.g., GPT-4, GPT-4-mini)
+- [x] OpenAI Models (e.g., GPT-4o, GPT-4o-mini)
 - [x] Ollama Integration
 - [x] Gemini Integration
 - [ ] Hugging Face API support
@@ -56,10 +55,9 @@ You can use models like Groq, TogetherAI using the same API as OpenAI. Just give
 - [x] Tool-Calling Agent
 - [x] CodeAgent
 - [x] MCP Agent
-- [ ] Planning Agent
-- [ ] Multi-Agent Support
+- [x] Planning Agent
+- [x] Multi-Agent Support
 
-The code agent is still in development, so there might be python code that is not yet supported and may cause errors. Try using the tool-calling agent for now.
 
 ### Tools
 
@@ -75,6 +73,7 @@ The code agent is still in development, so there might be python code that is no
 - [ ] E2B Sandbox
 - [ ] Streaming output
 - [ ] Improve logging
+- [ ] Tracing
 
 ---
 
