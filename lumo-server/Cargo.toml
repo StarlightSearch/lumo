@@ -14,11 +14,13 @@ lumo = {workspace = true, features = ["stream"]}
 tokio.workspace = true
 reqwest.workspace = true
 serde.workspace = true
+serde_json.workspace = true
 anyhow.workspace = true
 log.workspace = true
 actix-cors = "0.7.0"
 serde_yaml.workspace = true
 directories.workspace = true
+futures.workspace = true
 
 [features]
 code = ["lumo/code-agent"]

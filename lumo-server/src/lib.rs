@@ -1,4 +1,5 @@
 pub mod config;
+pub mod auth;
 use actix_web::{dev::Server, get, post, web::Json, App, HttpResponse, HttpServer, Responder};
 use anyhow::Result;
 use config::Servers;
@@ -17,6 +18,7 @@ use mcp_client::{
     Transport,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::net::TcpListener;
 use std::str::FromStr;
 use actix_cors::Cors;
@@ -101,7 +103,6 @@ async fn run_task(
         None
     };
 
-    println!("api_key: {:?}", api_key);
     let model = OpenAIServerModelBuilder::new(&req.model)
         .with_base_url(Some(&req.base_url))
         .with_api_key(api_key.as_deref())
@@ -203,6 +204,7 @@ pub fn run(listener: TcpListener) -> std::io::Result<Server> {
 
         App::new()
             .wrap(cors)
+            .wrap(auth::ApiKeyAuth)
             .service(health_check)
             .service(run_task)
     })
