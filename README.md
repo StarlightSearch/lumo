@@ -240,10 +240,7 @@ The server automatically detects the appropriate API key based on the base_url:
 - Groq URLs use `GROQ_API_KEY`
 - Anthropic URLs use `ANTHROPIC_API_KEY`
 
-### CORS
-
-The server includes CORS support for local development (default origin: http://localhost:5173).
-
+---
 
 ## 🤝 Contributing
 
