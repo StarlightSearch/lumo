@@ -18,7 +18,6 @@ use mcp_client::{
     Transport,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use std::net::TcpListener;
 use std::str::FromStr;
 use actix_cors::Cors;
