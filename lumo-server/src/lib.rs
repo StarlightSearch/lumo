@@ -13,10 +13,14 @@ use lumo::{
 #[cfg(feature = "code")]
 use lumo::tools::PythonInterpreterTool;
 #[cfg(feature = "mcp")]
-use mcp_client::{
+use {
+mcp_client::{
     ClientCapabilities, ClientInfo, McpClient, McpClientTrait, McpService, StdioTransport,
     Transport,
+},
+lumo::agent::McpAgentBuilder,
 };
+
 use serde::{Deserialize, Serialize};
 use std::net::TcpListener;
 use std::str::FromStr;
@@ -195,6 +199,8 @@ async fn run_task(
 
 pub fn run(listener: TcpListener) -> std::io::Result<Server> {
     Ok(HttpServer::new(move || {
+
+        let _ = Servers::load().map_err(actix_web::error::ErrorInternalServerError);
         let cors = Cors::default()
             .allow_any_origin()
             .allowed_methods(vec!["GET", "POST"])

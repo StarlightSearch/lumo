@@ -61,6 +61,7 @@ impl From<ToolInfo> for Tool {
             tool.function.name,
             tool.function.description,
             serde_json::to_value(tool.function.parameters).unwrap(),
+            None
         )
     }
 }

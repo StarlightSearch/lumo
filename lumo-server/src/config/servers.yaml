@@ -10,25 +10,6 @@
 #     - "path/to/directory"
 #   env: null
 
-exa-search:
-  command: npx
-  args:
-    - "exa-mcp-server"
-  env: 
-    EXA_API_KEY: "8aff8f33-e5b8-49c2-809e-06726110fba8"
-
-fetch:
-  command: uvx
-  args:
-    - "mcp-server-fetch"
-
-
-# obsidian:
-#   command: "uvx"
-#   args:
-#    - "mcp-obsidian"
-#   env: 
-#     OBSIDIAN_API_KEY: "2c321aa48a09f40d11cc5b74adfa8bf47c7e4c5f45b546b7074f31d639d2e38e"
 
 # You can add more server configurations below
 # Example:
