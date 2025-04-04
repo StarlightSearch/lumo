@@ -212,7 +212,8 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
             Step::ActionStep(step_log) => {
                 let parent_cx = Context::current();
                 let tracer = global::tracer("lumo");
-                let span = tracer.span_builder(format!("Step {}", self.get_step_number()))
+                let span = tracer
+                    .span_builder(format!("Step {}", self.get_step_number()))
                     .with_kind(SpanKind::Internal)
                     .with_attributes(vec![
                         KeyValue::new("gen_ai.operation.name", "agent_step"),
@@ -225,7 +226,10 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                 let agent_memory = self.base_agent.write_inner_memory_from_logs(None)?;
                 self.base_agent.input_messages = Some(agent_memory.clone());
                 step_log.agent_memory = Some(agent_memory.clone());
-                cx.span().set_attribute(KeyValue::new("input.value", serde_json::to_string(&agent_memory).unwrap_or_default()));
+                cx.span().set_attribute(KeyValue::new(
+                    "input.value",
+                    serde_json::to_string(&agent_memory).unwrap_or_default(),
+                ));
 
                 let mut tools = self
                     .base_agent
@@ -271,7 +275,8 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                             "stop".to_string(),
                             vec!["Observation:".to_string()],
                         )])),
-                    ).with_context(cx.clone())
+                    )
+                    .with_context(cx.clone())
                     .await?;
 
                 step_log.llm_output = Some(model_message.get_response().unwrap_or_default());
@@ -283,7 +288,8 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                     Some(tools.clone())
                 };
 
-                cx.span().set_attribute(KeyValue::new("gen_ai.tool_calls.count", tools.len() as i64));
+                cx.span()
+                    .set_attribute(KeyValue::new("gen_ai.tool_calls.count", tools.len() as i64));
 
                 if !tools.is_empty() {
                     cx.span().set_attribute(KeyValue::new(
@@ -325,7 +331,8 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                         self.base_agent.write_inner_memory_from_logs(None)?;
                         step_log.final_answer = Some(response.clone());
                         step_log.observations = Some(vec![response.clone()]);
-                        cx.span().set_attribute(KeyValue::new("output.value", response.clone()));
+                        cx.span()
+                            .set_attribute(KeyValue::new("output.value", response.clone()));
                         return Ok(Some(step_log.clone()));
                     }
                 }
@@ -411,20 +418,38 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                         }
                     }
                     let results = join_all(futures).await;
-                    for result in results {
+                    for (i, result) in results.into_iter().enumerate() {
+                        let span = tracer
+                            .span_builder(tools[i].function.name.clone())
+                            .with_kind(SpanKind::Internal)
+                            .with_attributes(vec![
+                                KeyValue::new("gen_ai.operation.name", "tool_call"),
+                                KeyValue::new("gen_ai.tool.name", tools[i].function.name.clone()),
+                                KeyValue::new("gen_ai.tool.arguments", serde_json::to_string(&tools[i].function.arguments).unwrap_or_default()),
+                                KeyValue::new("input.value", serde_json::to_string(&tools[i].function.arguments).unwrap_or_default()),
+                            ])
+                            .start_with_context(&tracer, &cx);
+                        let cx = Context::current_with_span(span);
                         if let Ok(result) = result {
                             observations.push(result);
-                            cx.span().set_attribute(KeyValue::new("gen_ai.tool.success", true));
+                            cx.span()
+                                .set_attribute(KeyValue::new("gen_ai.tool.success", true));
                         } else if let Err(e) = result {
                             tracing::error!("Error executing tool call: {}", e);
                             observations.push(e.to_string());
-                            cx.span().set_attribute(KeyValue::new("gen_ai.tool.success", false));
-                            cx.span().set_attribute(KeyValue::new("gen_ai.tool.error", e.to_string()));
+                            cx.span()
+                                .set_attribute(KeyValue::new("gen_ai.tool.success", false));
+                            cx.span()
+                                .set_attribute(KeyValue::new("gen_ai.tool.error", e.to_string()));
                         }
+                        cx.span().set_attribute(KeyValue::new("output.value", observations[i].clone()));
                     }
                 }
                 step_log.observations = Some(observations);
-                cx.span().set_attribute(KeyValue::new("output.value", step_log.observations.clone().unwrap_or_default().join("\n")));
+                cx.span().set_attribute(KeyValue::new(
+                    "output.value",
+                    step_log.observations.clone().unwrap_or_default().join("\n"),
+                ));
 
                 if step_log
                     .observations

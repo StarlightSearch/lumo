@@ -256,7 +256,7 @@ impl Model for OpenAIServerModel {
         });
 
         let parent_cx = Context::current();
-        let mut span = global::tracer("lumo").start_with_context("model_run", &parent_cx);
+        let mut span = global::tracer("lumo").start_with_context("OpenAIServerModel::run", &parent_cx);
         span.set_attributes(vec![
             KeyValue::new("input.value", serde_json::to_string(&messages).unwrap()),
             KeyValue::new("llm.model_name", self.model_id.clone()),
