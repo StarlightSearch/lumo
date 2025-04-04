@@ -23,12 +23,10 @@ directories.workspace = true
 futures.workspace = true
 tracing.workspace = true
 tracing-subscriber = { workspace = true, features = ["fmt", "env-filter", "json"] }
-opentelemetry = { version = "0.29.1", features = ["trace"]}
-opentelemetry_sdk = { version = "0.29.0", features = ["rt-tokio"] }
-opentelemetry-http = { version = "0.29.0" }
-opentelemetry-semantic-conventions = { version = "0.29.0" }
-opentelemetry-otlp = { version = "0.29.0", features = ["trace", "metrics"] }
-tracing-opentelemetry = "0.30.0"
+opentelemetry.workspace = true
+opentelemetry_sdk.workspace = true
+opentelemetry-otlp.workspace = true
+tracing-opentelemetry.workspace = true
 base64 = "0.22.1"
 [features]
 code = ["lumo/code-agent"]
