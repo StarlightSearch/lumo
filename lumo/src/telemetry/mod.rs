@@ -1,3 +1,4 @@
+use chrono;
 use opentelemetry::{
     global::{self},
     trace::{SpanKind, TraceContextExt, Tracer},
@@ -25,6 +26,10 @@ impl AgentTelemetry {
         let parent_cx = Context::current();
         let tracer_name = self.tracer_name.clone();
         let tracer = global::tracer(tracer_name);
+
+        // Get current timestamp for consistent ordering
+        let start_time = chrono::Utc::now().to_rfc3339();
+
         let span = tracer
             .span_builder(format!("Step {}", step_number))
             .with_kind(SpanKind::Internal)
@@ -32,9 +37,9 @@ impl AgentTelemetry {
                 KeyValue::new("gen_ai.operation.name", "agent_step"),
                 KeyValue::new("step_type", "action"),
                 KeyValue::new("step_number", step_number),
+                KeyValue::new("timestamp", start_time),
             ])
             .start_with_context(&tracer, &parent_cx);
-                     
 
         let cx = Context::current_with_span(span);
         self.current_context = Some(cx.clone());
@@ -81,7 +86,10 @@ impl AgentTelemetry {
         let span = tracer
             .span_builder(function_name.to_string())
             .with_kind(SpanKind::Internal)
-            .with_attributes(vec![KeyValue::new("gen_ai.operation.name", "tool_calls")])
+            .with_attributes(vec![
+                KeyValue::new("gen_ai.operation.name", "tool_calls"),
+                KeyValue::new("timestamp", chrono::Utc::now().to_rfc3339()),
+            ])
             .start_with_context(&tracer, &cx);
         let cx = Context::current_with_span(span);
 
@@ -105,7 +113,7 @@ impl AgentTelemetry {
         cx
     }
 
-    pub fn log_tool_result(&self,  result: &str, success: bool, cx: &Context) {
+    pub fn log_tool_result(&self, result: &str, success: bool, cx: &Context) {
         if success {
             cx.span()
                 .set_attribute(KeyValue::new("gen_ai.tool.success", true));
@@ -146,7 +154,14 @@ impl AgentTelemetry {
 
     pub fn end_step(&mut self) {
         if let Some(cx) = self.current_context.take() {
-            cx.span().end_with_timestamp(std::time::SystemTime::now());
+            // End the span with the current timestamp
+            let current_time = chrono::Utc::now();
+            cx.span().end_with_timestamp(current_time.into());
+
+            // Small delay to allow the current span to be fully processed
+            // before starting subsequent spans. This helps maintain proper
+            // ordering when sending to remote telemetry backends.
+            std::thread::sleep(std::time::Duration::from_millis(1));
         }
     }
 }

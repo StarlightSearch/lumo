@@ -202,6 +202,7 @@ async fn run_task(req: Json<RunTaskRequest>) -> Result<impl Responder, actix_web
             KeyValue::new("gen_ai.task", req.task.clone()),
             KeyValue::new("gen_ai.base_url", req.base_url.clone()),
             KeyValue::new("input.value", req.task.clone()),
+            KeyValue::new("timestamp", chrono::Utc::now().to_rfc3339()),
         ])
         .start(&tracer);
     let cx = Context::current_with_span(span);

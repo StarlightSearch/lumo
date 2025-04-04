@@ -262,6 +262,7 @@ impl Model for OpenAIServerModel {
             KeyValue::new("llm.model_name", self.model_id.clone()),
             KeyValue::new("gen_ai.request.temperature", self.temperature.to_string()),
             KeyValue::new("gen_ai.request.max_tokens", max_tokens.to_string()),
+            KeyValue::new("timestamp", chrono::Utc::now().to_rfc3339()),
         ]);
 
         if let Some(args) = &args {

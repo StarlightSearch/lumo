@@ -27,6 +27,7 @@ opentelemetry.workspace = true
 opentelemetry_sdk.workspace = true
 opentelemetry-otlp.workspace = true
 tracing-opentelemetry.workspace = true
+chrono.workspace = true
 base64 = "0.22.1"
 [features]
 code = ["lumo/code-agent"]
