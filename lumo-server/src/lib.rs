@@ -161,17 +161,17 @@ async fn health_check() -> impl Responder {
 
 async fn run_task(req: Json<RunTaskRequest>) -> Result<impl Responder, actix_web::Error> {
     let tracer = global::tracer("lumo");
-    let mut span = tracer
+    let span = tracer
         .span_builder("run_task")
         .with_kind(SpanKind::Server)
         .with_attributes(vec![
             KeyValue::new("gen_ai.operation.name", "run_task"),
             KeyValue::new("gen_ai.task", req.task.clone()),
-            KeyValue::new("gen_ai.model", req.model.clone()),
             KeyValue::new("gen_ai.base_url", req.base_url.clone()),
             KeyValue::new("input.value", req.task.clone()),
         ])
         .start(&tracer);
+    let cx = Context::current_with_span(span);
     // use base url to get the right key from environment variables
     let api_key = if req.base_url == "https://api.openai.com/v1/chat/completions" {
         std::env::var("OPENAI_API_KEY").ok()
@@ -187,7 +187,7 @@ async fn run_task(req: Json<RunTaskRequest>) -> Result<impl Responder, actix_web
         None
     };
 
-    span.set_attribute(KeyValue::new("gen_ai.system", req.base_url.clone()));
+    cx.span().set_attribute(KeyValue::new("gen_ai.system", req.base_url.clone()));
 
     let model = OpenAIServerModelBuilder::new(&req.model)
         .with_base_url(Some(&req.base_url))
@@ -279,15 +279,13 @@ async fn run_task(req: Json<RunTaskRequest>) -> Result<impl Responder, actix_web
 
             agent
                 .run(&req.task, false)
-                .with_context(Context::current_with_span(span))
+                .with_context(cx.clone())
                 .await
                 .map_err(actix_web::error::ErrorInternalServerError)?
         }
 
     };
-
-
-
+    cx.span().set_attribute(KeyValue::new("output.value", response.clone()));
 
     Ok(Json(RunTaskResponse { response }))
 }

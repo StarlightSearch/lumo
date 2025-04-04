@@ -11,21 +11,22 @@ use crate::{
 use anyhow::Result;
 use async_trait::async_trait;
 use nanoid::nanoid;
+use opentelemetry::{global, trace::{Span, Tracer}, Context, KeyValue};
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct OpenAIResponse {
     pub choices: Vec<Choice>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct Choice {
     pub message: AssistantMessage,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct AssistantMessage {
     pub role: MessageRole,
     pub content: Option<String>,
@@ -33,7 +34,7 @@ pub struct AssistantMessage {
     pub refusal: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone)]
+#[derive(Debug, Serialize, Deserialize, Clone,)]
 pub struct ToolCall {
     #[serde(default = "generate_tool_id", deserialize_with = "deserialize_tool_id")]
     pub id: Option<String>,
@@ -254,20 +255,34 @@ impl Model for OpenAIServerModel {
             "max_tokens": max_tokens,
         });
 
-        if !tools_to_call_from.is_empty() {
-            body["tools"] = json!(tools_to_call_from);
-            body["tool_choice"] = json!("auto");
-        }
+        let parent_cx = Context::current();
+        let mut span = global::tracer("lumo").start_with_context("model_run", &parent_cx);
+        span.set_attributes(vec![
+            KeyValue::new("input.value", serde_json::to_string(&messages).unwrap()),
+            KeyValue::new("llm.model_name", self.model_id.clone()),
+            KeyValue::new("gen_ai.request.temperature", self.temperature.to_string()),
+            KeyValue::new("gen_ai.request.max_tokens", max_tokens.to_string()),
+        ]);
 
-        if let Some(args) = args {
-            let body_map = body.as_object_mut().unwrap();
+        if let Some(args) = &args {
             for (key, value) in args {
-                body_map.insert(key, json!(value));
+                if key != "messages" {
+                    span.set_attribute(KeyValue::new(
+                        format!("gen_ai.request.{}", key),
+                        serde_json::to_string(value).unwrap(),
+                    ));
+                }
             }
         }
 
-        let mut writer = std::fs::File::create("openai_body.json").unwrap();
-        writer.write_all(body.to_string().as_bytes()).unwrap();
+        if !tools_to_call_from.is_empty() {
+            span.set_attribute(KeyValue::new(
+                "gen_ai.request.tools",
+                serde_json::to_string(&tools_to_call_from).unwrap(),
+            ));
+            body["tools"] = json!(tools_to_call_from);
+            body["tool_choice"] = json!("auto");
+        }
         
         let response = self
             .client
@@ -283,6 +298,7 @@ impl Model for OpenAIServerModel {
         match response.status() {
             reqwest::StatusCode::OK => {
                 let response = response.json::<OpenAIResponse>().await.unwrap();
+                span.set_attribute(KeyValue::new("output.value", serde_json::to_string_pretty(&response).unwrap()));
                 Ok(Box::new(response))
             }
             _ => Err(AgentError::Generation(format!(
