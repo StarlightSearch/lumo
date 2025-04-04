@@ -286,7 +286,7 @@ async fn run_task(req: Json<RunTaskRequest>) -> Result<impl Responder, actix_web
 
     };
     cx.span().set_attribute(KeyValue::new("output.value", response.clone()));
-
+    cx.span().end();
     Ok(Json(RunTaskResponse { response }))
 }
 

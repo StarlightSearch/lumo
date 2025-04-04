@@ -471,6 +471,7 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                     );
                 }
                 cx.span().end();
+
                 Ok(Some(step_log.clone()))
             }
             _ => {

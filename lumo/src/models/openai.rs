@@ -299,6 +299,7 @@ impl Model for OpenAIServerModel {
             reqwest::StatusCode::OK => {
                 let response = response.json::<OpenAIResponse>().await.unwrap();
                 span.set_attribute(KeyValue::new("output.value", serde_json::to_string_pretty(&response).unwrap()));
+                span.end();
                 Ok(Box::new(response))
             }
             _ => Err(AgentError::Generation(format!(

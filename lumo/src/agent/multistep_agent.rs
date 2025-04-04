@@ -137,6 +137,12 @@ where
     }
     fn increment_step_number(&mut self) {
         self.step_number += 1;
+        // Ensure logs are ordered by step number
+        if let Some(last_log) = self.logs.last_mut() {
+            if let Step::ActionStep(step_log) = last_log {
+                step_log.step = self.step_number;
+            }
+        }
     }
     fn reset_step_number(&mut self) {
         self.step_number = 0;
