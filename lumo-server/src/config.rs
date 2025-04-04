@@ -56,9 +56,6 @@ impl Servers {
     }
 
     pub fn validate(&self) -> Result<()> {
-        if self.servers.is_empty() {
-            return Err(anyhow!("No servers configured in servers.yaml"));
-        }
 
         for (name, config) in &self.servers {
             config.validate().with_context(|| format!("Invalid configuration for server '{}'", name))?;
