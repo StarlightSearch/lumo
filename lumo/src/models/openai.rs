@@ -1,4 +1,4 @@
-use std::{collections::HashMap, io::Write};
+use std::collections::HashMap;
 
 use crate::{
     errors::AgentError,

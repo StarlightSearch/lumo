@@ -2,26 +2,26 @@ pub mod auth;
 pub mod config;
 use actix_web::{dev::Server, get, post, web::Json, App, HttpResponse, HttpServer, Responder};
 use anyhow::Result;
+use base64::{self, Engine};
 use config::Servers;
 use lumo::{
     agent::{Agent, FunctionCallingAgentBuilder},
     models::{openai::OpenAIServerModelBuilder, types::Message},
     tools::{AsyncTool, DuckDuckGoSearchTool, GoogleSearchTool, VisitWebsiteTool},
 };
-use opentelemetry::{global, trace::{SpanKind, TraceContextExt}};
-use opentelemetry::trace::Span;
+use opentelemetry::trace::FutureExt;
 use opentelemetry::trace::Tracer;
 use opentelemetry::trace::TracerProvider;
+use opentelemetry::Context;
 use opentelemetry::KeyValue;
+use opentelemetry::{
+    global,
+    trace::{SpanKind, TraceContextExt},
+};
 use opentelemetry_otlp::{WithExportConfig, WithHttpConfig};
 use opentelemetry_sdk::trace as sdktrace;
-use opentelemetry_sdk::runtime;
 use opentelemetry_sdk::trace::{SdkTracerProvider, TraceError};
-use tracing::{instrument, Level};
-use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
-use opentelemetry::trace::FutureExt;
-use opentelemetry::Context;
-use base64;
+use tracing::instrument;
 
 #[cfg(feature = "code")]
 use lumo::tools::PythonInterpreterTool;
@@ -98,27 +98,32 @@ fn create_tool(tool_type: &ToolType) -> Box<dyn AsyncTool> {
 }
 
 pub fn init_tracer() -> Result<SdkTracerProvider, TraceError> {
-  
-    let langfuse_public_key = std::env::var("LANGFUSE_PUBLIC_KEY")
-        .expect("LANGFUSE_PUBLIC_KEY must be set");
-    let langfuse_secret_key = std::env::var("LANGFUSE_SECRET_KEY")
-        .expect("LANGFUSE_SECRET_KEY must be set");
+    let langfuse_public_key =
+        std::env::var("LANGFUSE_PUBLIC_KEY").expect("LANGFUSE_PUBLIC_KEY must be set");
+    let langfuse_secret_key =
+        std::env::var("LANGFUSE_SECRET_KEY").expect("LANGFUSE_SECRET_KEY must be set");
 
     // Basic Auth: base64(public_key:secret_key)
-    let auth_header = format!("Basic {}", base64::encode(format!("{}:{}", langfuse_public_key, langfuse_secret_key)));
+
+    let auth_header = format!(
+        "Basic {}",
+        base64::engine::general_purpose::STANDARD
+            .encode(format!("{}:{}", langfuse_public_key, langfuse_secret_key))
+    );
     println!("auth_header: {}", auth_header);
 
     let mut headers = std::collections::HashMap::new();
     headers.insert("Authorization".to_string(), auth_header);
 
-
     let otlp_exporter = opentelemetry_otlp::SpanExporter::builder()
-    .with_http()
-    .with_endpoint("https://cloud.langfuse.com/api/public/otel/v1/traces").with_protocol(opentelemetry_otlp::Protocol::HttpJson)
-    .with_headers(headers)
-    // .build()
-    // .with_tonic().with_endpoint("http://localhost:4317")
-    .build().unwrap();
+        .with_http()
+        .with_endpoint("https://cloud.langfuse.com/api/public/otel/v1/traces")
+        .with_protocol(opentelemetry_otlp::Protocol::HttpJson)
+        .with_headers(headers)
+        // .build()
+        // .with_tonic().with_endpoint("http://localhost:4317")
+        .build()
+        .unwrap();
 
     // let batch_processor = sdktrace::BatchSpanProcessor::builder(
     //     otlp_exporter,
@@ -128,7 +133,11 @@ pub fn init_tracer() -> Result<SdkTracerProvider, TraceError> {
     let tracer_provider = sdktrace::SdkTracerProvider::builder()
         // .with_span_processor(batch_processor)
         .with_batch_exporter(otlp_exporter)
-        .with_resource(opentelemetry_sdk::resource::Resource::builder().with_service_name("lumo").build())
+        .with_resource(
+            opentelemetry_sdk::resource::Resource::builder()
+                .with_service_name("lumo")
+                .build(),
+        )
         .build();
 
     // Initialize the tracer
@@ -187,7 +196,8 @@ async fn run_task(req: Json<RunTaskRequest>) -> Result<impl Responder, actix_web
         None
     };
 
-    cx.span().set_attribute(KeyValue::new("gen_ai.system", req.base_url.clone()));
+    cx.span()
+        .set_attribute(KeyValue::new("gen_ai.system", req.base_url.clone()));
 
     let model = OpenAIServerModelBuilder::new(&req.model)
         .with_base_url(Some(&req.base_url))
@@ -283,15 +293,14 @@ async fn run_task(req: Json<RunTaskRequest>) -> Result<impl Responder, actix_web
                 .await
                 .map_err(actix_web::error::ErrorInternalServerError)?
         }
-
     };
-    cx.span().set_attribute(KeyValue::new("output.value", response.clone()));
+    cx.span()
+        .set_attribute(KeyValue::new("output.value", response.clone()));
 
     Ok(Json(RunTaskResponse { response }))
 }
 
 pub fn run(listener: TcpListener) -> std::io::Result<Server> {
-
     Ok(HttpServer::new(move || {
         let _ = Servers::load().map_err(actix_web::error::ErrorInternalServerError);
         let cors = Cors::default()

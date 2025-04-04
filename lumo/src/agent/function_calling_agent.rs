@@ -360,11 +360,11 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                         match result {
                             Ok(result) => {
                                 observations.push(result.clone());
-                                self.telemetry.log_tool_result(&tools[i].function.name, &result, true, &cx);
+                                self.telemetry.log_tool_result(&result, true, &cx);
                             }
                             Err(e) => {
                                 observations.push(e.to_string());
-                                self.telemetry.log_tool_result(&tools[i].function.name, &e.to_string(), false, &cx);
+                                self.telemetry.log_tool_result(&e.to_string(), false, &cx);
                             }
                         }
                     }

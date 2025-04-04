@@ -1,6 +1,6 @@
 use opentelemetry::{
-    global::{self, BoxedSpan},
-    trace::{Span, SpanKind, TraceContextExt, Tracer},
+    global::{self},
+    trace::{SpanKind, TraceContextExt, Tracer},
     Context, KeyValue,
 };
 use serde_json::Value;
@@ -9,21 +9,22 @@ use tracing;
 use crate::models::openai::ToolCall;
 
 pub struct AgentTelemetry {
-    tracer: opentelemetry::global::GlobalTracerProvider,
+    tracer_name: String,
     current_context: Option<Context>,
 }
 
 impl AgentTelemetry {
     pub fn new(tracer_name: &str) -> Self {
         Self {
-            tracer: global::tracer_provider(),
+            tracer_name: tracer_name.to_string(),
             current_context: None,
         }
     }
 
     pub fn start_step(&mut self, step_number: i64) -> Context {
         let parent_cx = Context::current();
-        let tracer = global::tracer("lumo");
+        let tracer_name = self.tracer_name.clone();
+        let tracer = global::tracer(tracer_name);
         let span = tracer
             .span_builder(format!("Step {}", step_number))
             .with_kind(SpanKind::Internal)
@@ -102,7 +103,7 @@ impl AgentTelemetry {
         cx
     }
 
-    pub fn log_tool_result(&self, function_name: &str, result: &str, success: bool, cx: &Context) {
+    pub fn log_tool_result(&self,  result: &str, success: bool, cx: &Context) {
         if success {
             cx.span()
                 .set_attribute(KeyValue::new("gen_ai.tool.success", true));
