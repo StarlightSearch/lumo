@@ -1,6 +1,11 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use futures::future::join_all;
+use opentelemetry::{
+    global,
+    trace::{Span, SpanKind, Tracer},
+    Context, KeyValue,
+};
 use serde_json::json;
 use std::collections::HashMap;
 
@@ -15,7 +20,7 @@ use crate::{
     prompts::TOOL_CALLING_SYSTEM_PROMPT,
     tools::{AsyncTool, ToolFunctionInfo, ToolGroup, ToolInfo, ToolType},
 };
-use tracing::{instrument, Span};
+use tracing::instrument;
 
 use super::{agent_step::Step, multistep_agent::MultiStepAgent, AgentStep};
 
@@ -205,8 +210,17 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
     async fn step(&mut self, log_entry: &mut Step) -> Result<Option<AgentStep>, AgentError> {
         match log_entry {
             Step::ActionStep(step_log) => {
-                let span = Span::current();
-                span.record("step_type", "action");
+                let parent_cx = Context::current();
+                let tracer = global::tracer("lumo");
+                let mut span = tracer
+                    .span_builder("agent_step")
+                    .with_kind(SpanKind::Internal)
+                    .start_with_context(&tracer, &parent_cx);
+                span.set_attributes(vec![
+                    KeyValue::new("gen_ai.operation.name", "agent_step"),
+                    KeyValue::new("step_type", "action"),
+                    KeyValue::new("step_number", self.get_step_number() as i64),
+                ]);
 
                 let agent_memory = self.base_agent.write_inner_memory_from_logs(None)?;
                 self.base_agent.input_messages = Some(agent_memory.clone());
@@ -267,6 +281,18 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                     Some(tools.clone())
                 };
 
+                span.set_attribute(KeyValue::new("gen_ai.tool_calls.count", tools.len() as i64));
+                if !tools.is_empty() {
+                    span.set_attribute(KeyValue::new(
+                        "gen_ai.tool_calls.names",
+                        tools
+                            .iter()
+                            .map(|t| t.function.name.clone())
+                            .collect::<Vec<_>>()
+                            .join(","),
+                    ));
+                }
+
                 tracing::info!(
                     step = self.get_step_number(),
                     tool_calls = serde_json::to_string_pretty(&tools).unwrap_or_default(),
@@ -285,7 +311,8 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                                 },
                             }];
                             tracing::info!(
-                                tool_calls = serde_json::to_string_pretty(&tools).unwrap_or_default(),
+                                tool_calls =
+                                    serde_json::to_string_pretty(&tools).unwrap_or_default(),
                                 "Agent selected tools"
                             );
                             step_log.tool_call = Some(tools.clone());
@@ -358,6 +385,15 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                                         args = ?tool.function.arguments,
                                         "Executing tool call:"
                                     );
+                                    span.set_attribute(KeyValue::new(
+                                        "gen_ai.tool.name",
+                                        function_name.clone(),
+                                    ));
+                                    span.set_attribute(KeyValue::new(
+                                        "gen_ai.tool.arguments",
+                                        serde_json::to_string(&tool.function.arguments)
+                                            .unwrap_or_default(),
+                                    ));
                                     if !managed_agent_names.contains(&function_name.as_str()) {
                                         let tool_call = tools_ref.call(&tool.function);
                                         futures.push(tool_call);
@@ -370,9 +406,12 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                     for result in results {
                         if let Ok(result) = result {
                             observations.push(result);
+                            span.set_attribute(KeyValue::new("gen_ai.tool.success", true));
                         } else if let Err(e) = result {
                             tracing::error!("Error executing tool call: {}", e);
                             observations.push(e.to_string());
+                            span.set_attribute(KeyValue::new("gen_ai.tool.success", false));
+                            span.set_attribute(KeyValue::new("gen_ai.tool.error", e.to_string()));
                         }
                     }
                 }
@@ -397,6 +436,7 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                         step_log.observations.clone().unwrap_or_default().join("\n")
                     );
                 }
+                span.end();
                 Ok(Some(step_log.clone()))
             }
             _ => {

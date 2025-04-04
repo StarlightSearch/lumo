@@ -1,31 +1,44 @@
-pub mod config;
 pub mod auth;
+pub mod config;
 use actix_web::{dev::Server, get, post, web::Json, App, HttpResponse, HttpServer, Responder};
 use anyhow::Result;
 use config::Servers;
 use lumo::{
     agent::{Agent, FunctionCallingAgentBuilder},
     models::{openai::OpenAIServerModelBuilder, types::Message},
-    tools::{
-        AsyncTool, DuckDuckGoSearchTool, GoogleSearchTool, VisitWebsiteTool,
-    },
+    tools::{AsyncTool, DuckDuckGoSearchTool, GoogleSearchTool, VisitWebsiteTool},
 };
+use opentelemetry::{global, trace::{SpanKind, TraceContextExt}};
+use opentelemetry::trace::Span;
+use opentelemetry::trace::Tracer;
+use opentelemetry::trace::TracerProvider;
+use opentelemetry::KeyValue;
+use opentelemetry_otlp::{WithExportConfig, WithHttpConfig};
+use opentelemetry_sdk::trace as sdktrace;
+use opentelemetry_sdk::runtime;
+use opentelemetry_sdk::trace::{SdkTracerProvider, TraceError};
+use tracing::{instrument, Level};
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
+use opentelemetry::trace::FutureExt;
+use opentelemetry::Context;
+use base64;
+
 #[cfg(feature = "code")]
 use lumo::tools::PythonInterpreterTool;
 #[cfg(feature = "mcp")]
 use {
-mcp_client::{
-    ClientCapabilities, ClientInfo, McpClient, McpClientTrait, McpService, StdioTransport,
-    Transport,
-},
-lumo::agent::McpAgentBuilder,
+    lumo::agent::McpAgentBuilder,
+    mcp_client::{
+        ClientCapabilities, ClientInfo, McpClient, McpClientTrait, McpService, StdioTransport,
+        Transport,
+    },
 };
 
+use actix_cors::Cors;
+use actix_web::http::header;
 use serde::{Deserialize, Serialize};
 use std::net::TcpListener;
 use std::str::FromStr;
-use actix_cors::Cors;
-use actix_web::http::header;
 
 #[derive(Deserialize)]
 struct RunTaskRequest {
@@ -84,19 +97,82 @@ fn create_tool(tool_type: &ToolType) -> Box<dyn AsyncTool> {
     }
 }
 
+pub fn init_tracer() -> Result<SdkTracerProvider, TraceError> {
+  
+    let langfuse_public_key = std::env::var("LANGFUSE_PUBLIC_KEY")
+        .expect("LANGFUSE_PUBLIC_KEY must be set");
+    let langfuse_secret_key = std::env::var("LANGFUSE_SECRET_KEY")
+        .expect("LANGFUSE_SECRET_KEY must be set");
+
+    // Basic Auth: base64(public_key:secret_key)
+    let auth_header = format!("Basic {}", base64::encode(format!("{}:{}", langfuse_public_key, langfuse_secret_key)));
+
+    let mut headers = std::collections::HashMap::new();
+    headers.insert("Authorization".to_string(), auth_header);
+
+    let otlp_exporter = opentelemetry_otlp::SpanExporter::builder()
+        .with_http()
+        .with_endpoint("https://cloud.langfuse.com/api/public/otel")
+        .with_headers(headers)
+        .build()
+        .expect("Failed to build OTLP exporter");
+
+    let batch_processor = sdktrace::BatchSpanProcessor::builder(
+        otlp_exporter,
+    )
+    .build();
+
+    let tracer_provider = sdktrace::SdkTracerProvider::builder()
+        .with_span_processor(batch_processor)
+        .with_resource(opentelemetry_sdk::resource::Resource::builder().with_service_name("lumo").build())
+        .build();
+
+    // Initialize the tracer
+    let tracer = tracer_provider.tracer("lumo");
+
+    // Set the global tracer provider
+    opentelemetry::global::set_tracer_provider(tracer_provider.clone());
+
+    Ok(tracer_provider)
+}
+
 #[get("/health_check")]
+#[instrument]
 async fn health_check() -> impl Responder {
     HttpResponse::Ok()
 }
 
 #[post("/run")]
-async fn run_task(
-    req: Json<RunTaskRequest>,
-) -> Result<impl Responder, actix_web::Error> {
-    // use base url to get the right key from environment variables. if base url has openai, use openai key, if it has google, use google key, if it has groq, use groq key, if it has anthropic, use anthropic key
-    let api_key = if req.base_url== "https://api.openai.com/v1/chat/completions" {
+#[instrument(
+    skip(req),
+    fields(
+        task = %req.task,
+        model = %req.model,
+        base_url = %req.base_url,
+        tools = ?req.tools,
+        max_steps = ?req.max_steps,
+        agent_type = ?req.agent_type
+    )
+)]
+
+async fn run_task(req: Json<RunTaskRequest>) -> Result<impl Responder, actix_web::Error> {
+    let tracer = global::tracer("lumo");
+    let mut span = tracer
+        .span_builder("run_task")
+        .with_kind(SpanKind::Server)
+        .with_attributes(vec![
+            KeyValue::new("gen_ai.operation.name", "run_task"),
+            KeyValue::new("gen_ai.task", req.task.clone()),
+            KeyValue::new("gen_ai.model", req.model.clone()),
+            KeyValue::new("gen_ai.base_url", req.base_url.clone()),
+        ])
+        .start(&tracer);
+    // use base url to get the right key from environment variables
+    let api_key = if req.base_url == "https://api.openai.com/v1/chat/completions" {
         std::env::var("OPENAI_API_KEY").ok()
-    } else if req.base_url=="https://generativelanguage.googleapis.com/v1beta/openai/chat/completions" {
+    } else if req.base_url
+        == "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+    {
         std::env::var("GOOGLE_API_KEY").ok()
     } else if req.base_url.to_lowercase().contains("groq") {
         std::env::var("GROQ_API_KEY").ok()
@@ -105,6 +181,8 @@ async fn run_task(
     } else {
         None
     };
+
+    span.set_attribute(KeyValue::new("gen_ai.system", req.base_url.clone()));
 
     let model = OpenAIServerModelBuilder::new(&req.model)
         .with_base_url(Some(&req.base_url))
@@ -118,7 +196,7 @@ async fn run_task(
             // Create fresh clients for this request
             let mut clients = Vec::new();
             let servers = Servers::load().map_err(actix_web::error::ErrorInternalServerError)?;
-            
+
             // Only create clients for requested tools
             for (server_name, server_config) in servers.servers.iter() {
                 // Skip this server if its tools aren't requested
@@ -134,19 +212,24 @@ async fn run_task(
                     server_config.env.clone().unwrap_or_default(),
                 );
 
-                let transport_handle = transport.start().await
+                let transport_handle = transport
+                    .start()
+                    .await
                     .map_err(actix_web::error::ErrorInternalServerError)?;
-                
+
                 let service = McpService::new(transport_handle);
                 let mut client = McpClient::new(service);
 
-                client.initialize(
-                    ClientInfo {
-                        name: format!("{}-client", server_name),
-                        version: "1.0.0".into(),
-                    },
-                    ClientCapabilities::default(),
-                ).await.map_err(actix_web::error::ErrorInternalServerError)?;
+                client
+                    .initialize(
+                        ClientInfo {
+                            name: format!("{}-client", server_name),
+                            version: "1.0.0".into(),
+                        },
+                        ClientCapabilities::default(),
+                    )
+                    .await
+                    .map_err(actix_web::error::ErrorInternalServerError)?;
                 clients.push(client);
             }
 
@@ -163,6 +246,7 @@ async fn run_task(
 
             agent
                 .run(&req.task, false)
+                .with_context(Context::current_with_span(span))
                 .await
                 .map_err(actix_web::error::ErrorInternalServerError)?
         }
@@ -171,24 +255,25 @@ async fn run_task(
             let servers = Servers::load().map_err(actix_web::error::ErrorInternalServerError)?;
 
             let tools = if let Some(tools) = &req.tools {
-                tools.iter()
+                tools
+                    .iter()
                     .map(|tool| ToolType::from_str(tool).map(|t| create_tool(&t)))
                     .collect::<Result<Vec<_>, _>>()?
             } else {
                 vec![]
             };
 
-            let mut agent =
-                FunctionCallingAgentBuilder::new(model)
-                    .with_tools(tools)
-                    .with_max_steps(req.max_steps)
-                    .with_history(req.history.clone())
-                    .with_system_prompt(servers.system_prompt.as_deref())
-                    .with_logging_level(Some(log::LevelFilter::Info))
-                    .build()
-                    .map_err(actix_web::error::ErrorInternalServerError)?;
+            let mut agent = FunctionCallingAgentBuilder::new(model)
+                .with_tools(tools)
+                .with_max_steps(req.max_steps)
+                .with_history(req.history.clone())
+                .with_system_prompt(servers.system_prompt.as_deref())
+                .with_logging_level(Some(log::LevelFilter::Info))
+                .build()
+                .map_err(actix_web::error::ErrorInternalServerError)?;
             agent
                 .run(&req.task, false)
+                .with_context(Context::current_with_span(span))
                 .await
                 .map_err(actix_web::error::ErrorInternalServerError)?
         }
@@ -198,13 +283,17 @@ async fn run_task(
 }
 
 pub fn run(listener: TcpListener) -> std::io::Result<Server> {
-    Ok(HttpServer::new(move || {
 
+    Ok(HttpServer::new(move || {
         let _ = Servers::load().map_err(actix_web::error::ErrorInternalServerError);
         let cors = Cors::default()
             .allow_any_origin()
             .allowed_methods(vec!["GET", "POST"])
-            .allowed_headers(vec![header::AUTHORIZATION, header::ACCEPT, header::CONTENT_TYPE])
+            .allowed_headers(vec![
+                header::AUTHORIZATION,
+                header::ACCEPT,
+                header::CONTENT_TYPE,
+            ])
             .max_age(3600);
 
         App::new()

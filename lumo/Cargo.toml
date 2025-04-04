@@ -28,12 +28,16 @@ futures.workspace = true
 nanoid.workspace = true
 tracing = {workspace = true}
 
+
 # mcp
 mcp-client = {workspace = true, optional = true}
 mcp-core = {workspace = true, optional = true}
 tower = { workspace = true, features = ["timeout", "util"] , optional = true}
 tokio = {workspace = true, features = ["rt-multi-thread", "macros"], optional=true}
 async-stream = {workspace =true, optional = true}
+
+opentelemetry = { version = "0.29.1", features = ["trace"]}
+
 
 [dev-dependencies]
 clap = { version = "4.5.1", features = ["derive"] }
