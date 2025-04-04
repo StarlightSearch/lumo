@@ -97,7 +97,7 @@ fn create_tool(tool_type: &ToolType) -> Box<dyn AsyncTool> {
     }
 }
 
-pub async fn init_tracer() -> Result<SdkTracerProvider, TraceError> {
+pub fn init_tracer() -> Result<SdkTracerProvider, TraceError> {
   
     let langfuse_public_key = std::env::var("LANGFUSE_PUBLIC_KEY")
         .expect("LANGFUSE_PUBLIC_KEY must be set");
@@ -106,47 +106,33 @@ pub async fn init_tracer() -> Result<SdkTracerProvider, TraceError> {
 
     // Basic Auth: base64(public_key:secret_key)
     let auth_header = format!("Basic {}", base64::encode(format!("{}:{}", langfuse_public_key, langfuse_secret_key)));
+    println!("auth_header: {}", auth_header);
 
     let mut headers = std::collections::HashMap::new();
     headers.insert("Authorization".to_string(), auth_header);
 
-    // let otlp_exporter = opentelemetry_otlp::SpanExporter::builder()
-    //     .with_http().with_http_client(
-    //         reqwest::Client::builder().default_headers(
-    //             headers.into_iter().map(|(k, v)| {
-    //                 (reqwest::header::HeaderName::from_str(&k).unwrap(), reqwest::header::HeaderValue::from_str(&v).unwrap())
-    //             }).collect()
-    //         ).build().unwrap()
-    //     )
-    //     .with_endpoint("https://cloud.langfuse.com/api/public/otel")
-    //     .build()
-    //     .expect("Failed to build OTLP exporter");
 
     let otlp_exporter = opentelemetry_otlp::SpanExporter::builder()
-    // .with_http().with_http_client(
-    //     reqwest::Client::builder().default_headers(
-    //         headers.into_iter().map(|(k, v)| {
-    //             (reqwest::header::HeaderName::from_str(&k).unwrap(), reqwest::header::HeaderValue::from_str(&v).unwrap())
-    //         }).collect()
-    //     ).build().unwrap()
-    // )
-    // .with_endpoint("https://cloud.langfuse.com/api/public/otel")
+    .with_http()
+    .with_endpoint("https://cloud.langfuse.com/api/public/otel/v1/traces").with_protocol(opentelemetry_otlp::Protocol::HttpJson)
+    .with_headers(headers)
     // .build()
-    .with_tonic().with_endpoint("http://localhost:4317")
+    // .with_tonic().with_endpoint("http://localhost:4317")
     .build().unwrap();
 
-    let batch_processor = sdktrace::BatchSpanProcessor::builder(
-        otlp_exporter,
-    )
-    .build();
+    // let batch_processor = sdktrace::BatchSpanProcessor::builder(
+    //     otlp_exporter,
+    // )
+    // .build();
 
     let tracer_provider = sdktrace::SdkTracerProvider::builder()
-        .with_span_processor(batch_processor)
+        // .with_span_processor(batch_processor)
+        .with_batch_exporter(otlp_exporter)
         .with_resource(opentelemetry_sdk::resource::Resource::builder().with_service_name("lumo").build())
         .build();
 
     // Initialize the tracer
-    let tracer = tracer_provider.tracer("lumo");
+    let _ = tracer_provider.tracer("lumo");
 
     // Set the global tracer provider
     opentelemetry::global::set_tracer_provider(tracer_provider.clone());
@@ -183,6 +169,7 @@ async fn run_task(req: Json<RunTaskRequest>) -> Result<impl Responder, actix_web
             KeyValue::new("gen_ai.task", req.task.clone()),
             KeyValue::new("gen_ai.model", req.model.clone()),
             KeyValue::new("gen_ai.base_url", req.base_url.clone()),
+            KeyValue::new("input.value", req.task.clone()),
         ])
         .start(&tracer);
     // use base url to get the right key from environment variables
@@ -289,13 +276,18 @@ async fn run_task(req: Json<RunTaskRequest>) -> Result<impl Responder, actix_web
                 .with_logging_level(Some(log::LevelFilter::Info))
                 .build()
                 .map_err(actix_web::error::ErrorInternalServerError)?;
+
             agent
                 .run(&req.task, false)
                 .with_context(Context::current_with_span(span))
                 .await
                 .map_err(actix_web::error::ErrorInternalServerError)?
         }
+
     };
+
+
+
 
     Ok(Json(RunTaskResponse { response }))
 }

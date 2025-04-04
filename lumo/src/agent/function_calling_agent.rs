@@ -211,11 +211,8 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
         match log_entry {
             Step::ActionStep(step_log) => {
                 let parent_cx = Context::current();
-                let tracer = global::tracer("lumo");
-                let mut span = tracer
-                    .span_builder("agent_step")
-                    .with_kind(SpanKind::Internal)
-                    .start_with_context(&tracer, &parent_cx);
+                let mut span = global::tracer("lumo").start_with_context("agent_step", &parent_cx);
+   
                 span.set_attributes(vec![
                     KeyValue::new("gen_ai.operation.name", "agent_step"),
                     KeyValue::new("step_type", "action"),
@@ -322,6 +319,7 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                         self.base_agent.write_inner_memory_from_logs(None)?;
                         step_log.final_answer = Some(response.clone());
                         step_log.observations = Some(vec![response.clone()]);
+                        span.set_attribute(KeyValue::new("output.value", response.clone()));
                         return Ok(Some(step_log.clone()));
                     }
                 }
@@ -376,6 +374,7 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                                     step_log.final_answer = Some(answer.clone());
                                     step_log.observations = Some(vec![answer.clone()]);
                                     tracing::info!(answer = %answer, "Final answer received");
+                                    span.set_attribute(KeyValue::new("output.value", answer.clone()));
                                     return Ok(Some(step_log.clone()));
                                 }
 

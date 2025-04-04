@@ -7,7 +7,7 @@ use tracing_opentelemetry;
 #[actix_web::main]
 #[tracing::instrument]
 async fn main() -> std::io::Result<()> {
-    let _provider = init_tracer().await.expect("Failed to initialize OpenTelemetry tracer");
+    let _provider = init_tracer().expect("Failed to initialize OpenTelemetry tracer");
 
     tracing_subscriber::registry()
         .with(EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info")))
