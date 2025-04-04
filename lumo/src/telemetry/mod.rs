@@ -34,6 +34,8 @@ impl AgentTelemetry {
                 KeyValue::new("step_number", step_number),
             ])
             .start_with_context(&tracer, &parent_cx);
+                     
+
         let cx = Context::current_with_span(span);
         self.current_context = Some(cx.clone());
         cx
@@ -144,7 +146,7 @@ impl AgentTelemetry {
 
     pub fn end_step(&mut self) {
         if let Some(cx) = self.current_context.take() {
-            cx.span().end();
+            cx.span().end_with_timestamp(std::time::SystemTime::now());
         }
     }
 }

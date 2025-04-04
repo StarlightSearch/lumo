@@ -126,7 +126,7 @@ pub fn init_tracer() -> Result<SdkTracerProvider, TraceError> {
     let otlp_exporter = opentelemetry_otlp::SpanExporter::builder()
         .with_http()
         .with_endpoint(endpoint)
-        .with_protocol(opentelemetry_otlp::Protocol::HttpJson)
+        .with_protocol(opentelemetry_otlp::Protocol::HttpBinary)
         .with_headers(headers)
         // .build()
         // .with_tonic().with_endpoint("http://localhost:4317")
@@ -151,7 +151,11 @@ pub fn init_tracer() -> Result<SdkTracerProvider, TraceError> {
                 .with_attributes(vec![
                     KeyValue::new(
                         "deployment.environment",
-                        std::env::var("ENVIRONMENT").unwrap_or_else(|_| "development".to_string()),
+                        if cfg!(debug_assertions) {
+                            "development".to_string()
+                        } else {
+                            std::env::var("ENVIRONMENT").unwrap_or_else(|_| "production".to_string())
+                        },
                     ),
                     KeyValue::new("deployment.name", "lumo"),
                     KeyValue::new("deployment.version", env!("CARGO_PKG_VERSION")),

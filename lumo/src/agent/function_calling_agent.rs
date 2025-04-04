@@ -59,7 +59,7 @@ impl<M: Model + Send + Sync + 'static> FunctionCallingAgent<M> {
             history,
             logging_level,
         )?;
-        Ok(Self { 
+        Ok(Self {
             base_agent,
             telemetry: AgentTelemetry::new("lumo"),
         })
@@ -212,11 +212,13 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
         match log_entry {
             Step::ActionStep(step_log) => {
                 let cx = self.telemetry.start_step(self.get_step_number() as i64);
+   
 
                 let agent_memory = self.base_agent.write_inner_memory_from_logs(None)?;
                 self.base_agent.input_messages = Some(agent_memory.clone());
                 step_log.agent_memory = Some(agent_memory.clone());
-                self.telemetry.log_agent_memory(&serde_json::to_value(&agent_memory).unwrap_or_default());
+                self.telemetry
+                    .log_agent_memory(&serde_json::to_value(&agent_memory).unwrap_or_default());
 
                 let mut tools = self
                     .base_agent
@@ -260,7 +262,8 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                             "stop".to_string(),
                             vec!["Observation:".to_string()],
                         )])),
-                    ).with_context(cx.clone())
+                    )
+                    .with_context(cx.clone())
                     .await?;
 
                 step_log.llm_output = Some(model_message.get_response().unwrap_or_default());
@@ -326,7 +329,8 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                                     let result = managed_agent.run(task_str, true).await?;
                                     observations.push(result);
                                 } else {
-                                    step_log.observations = Some(vec!["Task should be a string.".to_string()]);
+                                    step_log.observations =
+                                        Some(vec!["Task should be a string.".to_string()]);
                                 }
                             } else {
                                 step_log.observations = Some(vec!["No task provided to managed agent. Provide the task as an argument to the tool call.".to_string()]);
@@ -356,7 +360,11 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
 
                     let results = join_all(futures).await;
                     for (i, result) in results.into_iter().enumerate() {
-                        let cx = self.telemetry.log_tool_execution(&tools[i].function.name, &tools[i].function.arguments, &cx);
+                        let cx = self.telemetry.log_tool_execution(
+                            &tools[i].function.name,
+                            &tools[i].function.arguments,
+                            &cx,
+                        );
                         match result {
                             Ok(result) => {
                                 observations.push(result.clone());
@@ -371,7 +379,8 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                 }
 
                 step_log.observations = Some(observations);
-                self.telemetry.log_observations(&step_log.observations.clone().unwrap_or_default());
+                self.telemetry
+                    .log_observations(&step_log.observations.clone().unwrap_or_default());
                 self.telemetry.end_step();
                 Ok(Some(step_log.clone()))
             }
