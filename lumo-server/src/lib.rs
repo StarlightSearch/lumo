@@ -19,7 +19,7 @@ use opentelemetry::{
     trace::{SpanKind, TraceContextExt},
 };
 use opentelemetry_otlp::{WithExportConfig, WithHttpConfig};
-use opentelemetry_sdk::trace as sdktrace;
+use opentelemetry_sdk::trace::{self as sdktrace, BatchConfigBuilder, BatchSpanProcessor};
 use opentelemetry_sdk::trace::{SdkTracerProvider, TraceError};
 use tracing::instrument;
 
@@ -98,13 +98,21 @@ fn create_tool(tool_type: &ToolType) -> Box<dyn AsyncTool> {
 }
 
 pub fn init_tracer() -> Result<SdkTracerProvider, TraceError> {
-    let langfuse_public_key =
-        std::env::var("LANGFUSE_PUBLIC_KEY").expect("LANGFUSE_PUBLIC_KEY must be set");
-    let langfuse_secret_key =
-        std::env::var("LANGFUSE_SECRET_KEY").expect("LANGFUSE_SECRET_KEY must be set");
+    let (langfuse_public_key, langfuse_secret_key, endpoint) = if cfg!(debug_assertions) {
+        (
+            "pk-lf-b3403582-e669-4ebf-91df-b80921f13b12".to_string(),
+            "sk-lf-01e1ea91-570a-44a6-9543-dc803a931041".to_string(),
+            "http://localhost:3000/api/public/otel/v1/traces".to_string(),
+        )
+    } else {
+        (
+            std::env::var("LANGFUSE_PUBLIC_KEY").expect("LANGFUSE_PUBLIC_KEY must be set"),
+            std::env::var("LANGFUSE_SECRET_KEY").expect("LANGFUSE_SECRET_KEY must be set"),
+            std::env::var("LANGFUSE_HOST").expect("LANGFUSE_HOST must be set") + "/api/public/otel/v1/traces",
+        )
+    };
 
     // Basic Auth: base64(public_key:secret_key)
-
     let auth_header = format!(
         "Basic {}",
         base64::engine::general_purpose::STANDARD
@@ -117,7 +125,7 @@ pub fn init_tracer() -> Result<SdkTracerProvider, TraceError> {
 
     let otlp_exporter = opentelemetry_otlp::SpanExporter::builder()
         .with_http()
-        .with_endpoint("https://cloud.langfuse.com/api/public/otel/v1/traces")
+        .with_endpoint(endpoint)
         .with_protocol(opentelemetry_otlp::Protocol::HttpJson)
         .with_headers(headers)
         // .build()
@@ -125,17 +133,29 @@ pub fn init_tracer() -> Result<SdkTracerProvider, TraceError> {
         .build()
         .unwrap();
 
-    // let batch_processor = sdktrace::BatchSpanProcessor::builder(
-    //     otlp_exporter,
-    // )
-    // .build();
+    let batch = BatchSpanProcessor::builder(otlp_exporter)
+        .with_batch_config(
+            BatchConfigBuilder::default()
+                .with_max_queue_size(512)
+                .with_scheduled_delay(std::time::Duration::from_millis(100))
+                .build(),
+        )
+        .build();
 
     let tracer_provider = sdktrace::SdkTracerProvider::builder()
         // .with_span_processor(batch_processor)
-        .with_batch_exporter(otlp_exporter)
+        .with_span_processor(batch)
         .with_resource(
             opentelemetry_sdk::resource::Resource::builder()
                 .with_service_name("lumo")
+                .with_attributes(vec![
+                    KeyValue::new(
+                        "deployment.environment",
+                        std::env::var("ENVIRONMENT").unwrap_or_else(|_| "development".to_string()),
+                    ),
+                    KeyValue::new("deployment.name", "lumo"),
+                    KeyValue::new("deployment.version", env!("CARGO_PKG_VERSION")),
+                ])
                 .build(),
         )
         .build();
