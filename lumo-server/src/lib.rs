@@ -101,10 +101,19 @@ fn create_tool(tool_type: &ToolType) -> Box<dyn AsyncTool> {
 }
 
 pub fn init_tracer() -> Result<SdkTracerProvider, TraceError> {
-    let langfuse_public_key =
-        std::env::var("LANGFUSE_PUBLIC_KEY").expect("LANGFUSE_PUBLIC_KEY must be set");
-    let langfuse_secret_key =
-        std::env::var("LANGFUSE_SECRET_KEY").expect("LANGFUSE_SECRET_KEY must be set");
+    let (langfuse_public_key, langfuse_secret_key, endpoint) = if cfg!(debug_assertions) {
+        (
+            "pk-lf-b3403582-e669-4ebf-91df-b80921f13b12".to_string(),
+            "sk-lf-01e1ea91-570a-44a6-9543-dc803a931041".to_string(),
+            "http://localhost:3000/api/public/otel/v1/traces"
+        )
+    } else {
+        (
+            std::env::var("LANGFUSE_PUBLIC_KEY").expect("LANGFUSE_PUBLIC_KEY must be set"),
+            std::env::var("LANGFUSE_SECRET_KEY").expect("LANGFUSE_SECRET_KEY must be set"), 
+            "https://cloud.langfuse.com/api/public/otel/v1/traces"
+        )
+    };
 
     // Basic Auth: base64(public_key:secret_key)
     let auth_header = format!(
@@ -118,7 +127,7 @@ pub fn init_tracer() -> Result<SdkTracerProvider, TraceError> {
 
     let otlp_exporter = opentelemetry_otlp::SpanExporter::builder()
         .with_http()
-        .with_endpoint("https://cloud.langfuse.com/api/public/otel/v1/traces")
+        .with_endpoint(endpoint)
         .with_protocol(opentelemetry_otlp::Protocol::HttpJson)
         .with_headers(headers)
         // .build()
@@ -129,7 +138,8 @@ pub fn init_tracer() -> Result<SdkTracerProvider, TraceError> {
     let batch = BatchSpanProcessor::builder(otlp_exporter)
         .with_batch_config(
             BatchConfigBuilder::default()
-                .with_max_queue_size(4096)
+                .with_max_queue_size(512)
+                .with_scheduled_delay(std::time::Duration::from_millis(100))
                 .build(),
         )
         .build();
@@ -140,16 +150,17 @@ pub fn init_tracer() -> Result<SdkTracerProvider, TraceError> {
         .with_resource(
             opentelemetry_sdk::resource::Resource::builder()
                 .with_service_name("lumo")
-                .with_attributes(vec![KeyValue::new(
-                    "deployment.environment",
-                    std::env::var("ENVIRONMENT").unwrap_or_else(|_| "development".to_string()),
-                ),
-                KeyValue::new("deployment.name", "lumo"),
-                KeyValue::new("deployment.version", env!("CARGO_PKG_VERSION")),
-            ])
-            .build(),
-    )
-    .build();
+                .with_attributes(vec![
+                    KeyValue::new(
+                        "deployment.environment",
+                        std::env::var("ENVIRONMENT").unwrap_or_else(|_| "development".to_string()),
+                    ),
+                    KeyValue::new("deployment.name", "lumo"),
+                    KeyValue::new("deployment.version", env!("CARGO_PKG_VERSION")),
+                ])
+                .build(),
+        )
+        .build();
 
     // Initialize the tracer
     let _ = tracer_provider.tracer("lumo");
@@ -189,6 +200,12 @@ async fn run_task(req: Json<RunTaskRequest>) -> Result<impl Responder, actix_web
             KeyValue::new("gen_ai.task", req.task.clone()),
             KeyValue::new("gen_ai.base_url", req.base_url.clone()),
             KeyValue::new("input.value", req.task.clone()),
+            KeyValue::new(
+                "timestamp",
+                chrono::Utc::now()
+                    .format("%Y-%m-%dT%H:%M:%S%.3fZ")
+                    .to_string(),
+            ),
         ])
         .start(&tracer);
     let cx = Context::current_with_span(span);
