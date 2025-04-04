@@ -219,6 +219,7 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                         KeyValue::new("gen_ai.operation.name", "agent_step"),
                         KeyValue::new("step_type", "action"),
                         KeyValue::new("step_number", self.get_step_number() as i64),
+                        KeyValue::new("timestamp", chrono::Utc::now().to_rfc3339()),
                     ])
                     .start_with_context(&tracer, &parent_cx);
                 let cx = Context::current_with_span(span);
@@ -427,6 +428,7 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                                 KeyValue::new("gen_ai.tool.name", tools[i].function.name.clone()),
                                 KeyValue::new("gen_ai.tool.arguments", serde_json::to_string(&tools[i].function.arguments).unwrap_or_default()),
                                 KeyValue::new("input.value", serde_json::to_string(&tools[i].function.arguments).unwrap_or_default()),
+                                KeyValue::new("timestamp", chrono::Utc::now().to_rfc3339()),
                             ])
                             .start_with_context(&tracer, &cx);
                         let cx = Context::current_with_span(span);

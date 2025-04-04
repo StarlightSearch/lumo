@@ -27,7 +27,7 @@ opentelemetry = { version = "0.29.1", features = ["trace"]}
 opentelemetry_sdk = { version = "0.29.0", features = ["rt-tokio"] }
 opentelemetry-http = { version = "0.29.0" }
 opentelemetry-semantic-conventions = { version = "0.29.0" }
-opentelemetry-otlp = { version = "0.29.0", features = ["trace", "metrics"] }
+opentelemetry-otlp = { version = "0.29.0", features = ["trace", "metrics","grpc-tonic",] }
 tracing-opentelemetry = "0.30.0"
 base64 = "0.22.1"
 [features]
