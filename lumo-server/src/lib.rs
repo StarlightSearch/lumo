@@ -97,7 +97,7 @@ fn create_tool(tool_type: &ToolType) -> Box<dyn AsyncTool> {
     }
 }
 
-pub fn init_tracer() -> Result<SdkTracerProvider, TraceError> {
+pub async fn init_tracer() -> Result<SdkTracerProvider, TraceError> {
   
     let langfuse_public_key = std::env::var("LANGFUSE_PUBLIC_KEY")
         .expect("LANGFUSE_PUBLIC_KEY must be set");
@@ -110,12 +110,30 @@ pub fn init_tracer() -> Result<SdkTracerProvider, TraceError> {
     let mut headers = std::collections::HashMap::new();
     headers.insert("Authorization".to_string(), auth_header);
 
+    // let otlp_exporter = opentelemetry_otlp::SpanExporter::builder()
+    //     .with_http().with_http_client(
+    //         reqwest::Client::builder().default_headers(
+    //             headers.into_iter().map(|(k, v)| {
+    //                 (reqwest::header::HeaderName::from_str(&k).unwrap(), reqwest::header::HeaderValue::from_str(&v).unwrap())
+    //             }).collect()
+    //         ).build().unwrap()
+    //     )
+    //     .with_endpoint("https://cloud.langfuse.com/api/public/otel")
+    //     .build()
+    //     .expect("Failed to build OTLP exporter");
+
     let otlp_exporter = opentelemetry_otlp::SpanExporter::builder()
-        .with_http()
-        .with_endpoint("https://cloud.langfuse.com/api/public/otel")
-        .with_headers(headers)
-        .build()
-        .expect("Failed to build OTLP exporter");
+    // .with_http().with_http_client(
+    //     reqwest::Client::builder().default_headers(
+    //         headers.into_iter().map(|(k, v)| {
+    //             (reqwest::header::HeaderName::from_str(&k).unwrap(), reqwest::header::HeaderValue::from_str(&v).unwrap())
+    //         }).collect()
+    //     ).build().unwrap()
+    // )
+    // .with_endpoint("https://cloud.langfuse.com/api/public/otel")
+    // .build()
+    .with_tonic().with_endpoint("http://localhost:4317")
+    .build().unwrap();
 
     let batch_processor = sdktrace::BatchSpanProcessor::builder(
         otlp_exporter,
