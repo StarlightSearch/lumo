@@ -278,12 +278,13 @@ impl Model for OpenAIServerModel {
         }
 
         if !tools_to_call_from.is_empty() {
-            span.set_attribute(KeyValue::new(
-                "gen_ai.request.tools",
-                serde_json::to_string(&tools_to_call_from).unwrap(),
-            ));
+  
             body["tools"] = json!(tools_to_call_from);
             body["tool_choice"] = json!("required");
+            span.set_attribute(KeyValue::new(
+                "gen_ai.request.tool_choice",
+                serde_json::to_string(&body["tool_choice"]).unwrap(),
+            ));
         }
         
         let response = self
