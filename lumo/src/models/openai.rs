@@ -269,10 +269,10 @@ impl Model for OpenAIServerModel {
         if let Some(args) = &args {
             for (key, value) in args {
                 if key != "messages" && key != "tools" {
-                    span.set_attribute(KeyValue::new(
+                    span.set_attributes(vec![KeyValue::new(
                         format!("gen_ai.request.{}", key),
                         serde_json::to_string(value).unwrap(),
-                    ));
+                    ), KeyValue::new("gen_ai.tools", serde_json::to_string(&tools_to_call_from).unwrap()),]);
                 }
             }
         }
