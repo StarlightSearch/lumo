@@ -285,7 +285,7 @@ async fn run_task(req: Json<RunTaskRequest>) -> Result<impl Responder, actix_web
 
             agent
                 .run(&req.task, false)
-                .with_context(Context::current_with_span(span))
+                .with_context(cx.clone())
                 .await
                 .map_err(actix_web::error::ErrorInternalServerError)?
         }
