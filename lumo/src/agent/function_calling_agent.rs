@@ -1,7 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use futures::future::join_all;
-use opentelemetry::trace::FutureExt;
+use opentelemetry::trace::{FutureExt, TraceContextExt};
 use serde_json::json;
 use std::collections::HashMap;
 
@@ -297,7 +297,6 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                         step_log.final_answer = Some(response.clone());
                         step_log.observations = Some(vec![response.clone()]);
                         self.telemetry.log_final_answer(&response);
-                        self.telemetry.end_step();
                         return Ok(Some(step_log.clone()));
                     }
                 }
@@ -345,7 +344,6 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                                     step_log.final_answer = Some(answer.clone());
                                     step_log.observations = Some(vec![answer.clone()]);
                                     self.telemetry.log_final_answer(&answer);
-                                    self.telemetry.end_step();
                                     return Ok(Some(step_log.clone()));
                                 }
                                 _ => {
@@ -376,12 +374,13 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                             }
                         }
                     }
+                    cx.span().end_with_timestamp(std::time::SystemTime::now());
                 }
 
                 step_log.observations = Some(observations);
                 self.telemetry
                     .log_observations(&step_log.observations.clone().unwrap_or_default());
-                self.telemetry.end_step();
+                cx.span().end_with_timestamp(std::time::SystemTime::now());
                 Ok(Some(step_log.clone()))
             }
             _ => {

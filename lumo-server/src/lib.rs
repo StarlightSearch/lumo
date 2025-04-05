@@ -118,7 +118,6 @@ pub fn init_tracer() -> Result<SdkTracerProvider, TraceError> {
         base64::engine::general_purpose::STANDARD
             .encode(format!("{}:{}", langfuse_public_key, langfuse_secret_key))
     );
-    println!("auth_header: {}", auth_header);
 
     let mut headers = std::collections::HashMap::new();
     headers.insert("Authorization".to_string(), auth_header);
@@ -137,7 +136,6 @@ pub fn init_tracer() -> Result<SdkTracerProvider, TraceError> {
         .with_batch_config(
             BatchConfigBuilder::default()
                 .with_max_queue_size(512)
-                .with_scheduled_delay(std::time::Duration::from_millis(100))
                 .build(),
         )
         .build();

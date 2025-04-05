@@ -103,6 +103,9 @@ impl Tool for DuckDuckGoSearchTool {
             .map(|r| format!("[{}]({}) \n{}", r.title, r.url, r.snippet))
             .collect::<Vec<_>>()
             .join("\n\n");
+        if results_string.is_empty() {
+            return Err(anyhow::anyhow!("No results found for query: {}", query));
+        }
         Ok(results_string)
     }
 }

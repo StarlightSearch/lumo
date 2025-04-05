@@ -33,6 +33,7 @@ impl AgentTelemetry {
         let span = tracer
             .span_builder(format!("Step {}", step_number))
             .with_kind(SpanKind::Internal)
+            .with_start_time(std::time::SystemTime::now())
             .with_attributes(vec![
                 KeyValue::new("gen_ai.operation.name", "agent_step"),
                 KeyValue::new("step_type", "action"),
@@ -92,6 +93,7 @@ impl AgentTelemetry {
             ])
             .start_with_context(&tracer, &cx);
         let cx = Context::current_with_span(span);
+
 
         tracing::info!(
             tool = %function_name,
