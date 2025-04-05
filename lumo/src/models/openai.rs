@@ -282,7 +282,7 @@ impl Model for OpenAIServerModel {
                 serde_json::to_string(&tools_to_call_from).unwrap(),
             ));
             body["tools"] = json!(tools_to_call_from);
-            body["tool_choice"] = json!("required");
+            body["tool_choice"] = json!("auto");
         }
         
         let response = self
