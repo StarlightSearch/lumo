@@ -268,7 +268,7 @@ impl Model for OpenAIServerModel {
 
         if let Some(args) = &args {
             for (key, value) in args {
-                if key != "messages" {
+                if key != "messages" && key != "tools" {
                     span.set_attribute(KeyValue::new(
                         format!("gen_ai.request.{}", key),
                         serde_json::to_string(value).unwrap(),
