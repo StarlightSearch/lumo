@@ -38,7 +38,7 @@ impl AgentTelemetry {
                 KeyValue::new("gen_ai.operation.name", "agent_step"),
                 KeyValue::new("step_type", "action"),
                 KeyValue::new("step_number", step_number),
-                KeyValue::new("timestamp", start_time),
+                KeyValue::new("start_time", start_time),
             ])
             .start_with_context(&tracer, &parent_cx);
 
@@ -91,9 +91,9 @@ impl AgentTelemetry {
                 KeyValue::new("gen_ai.operation.name", "tool_calls"),
                 KeyValue::new("timestamp", chrono::Utc::now().to_rfc3339()),
             ])
+            .with_start_time(std::time::SystemTime::now())
             .start_with_context(&tracer, &cx);
         let cx = Context::current_with_span(span);
-
 
         tracing::info!(
             tool = %function_name,
@@ -157,8 +157,9 @@ impl AgentTelemetry {
     pub fn end_step(&mut self) {
         if let Some(cx) = self.current_context.take() {
             // End the span with the current timestamp
-            let current_time = chrono::Utc::now();
-            cx.span().end_with_timestamp(current_time.into());
+            let end_time = std::time::SystemTime::now();
+            cx.span().set_attribute(KeyValue::new("end_time", chrono::Utc::now().to_rfc3339()));
+            cx.span().end_with_timestamp(end_time);
 
             // Small delay to allow the current span to be fully processed
             // before starting subsequent spans. This helps maintain proper

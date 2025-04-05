@@ -195,6 +195,7 @@ async fn run_task(req: Json<RunTaskRequest>) -> Result<impl Responder, actix_web
     let span = tracer
         .span_builder("run_task")
         .with_kind(SpanKind::Server)
+        .with_start_time(std::time::SystemTime::now())
         .with_attributes(vec![
             KeyValue::new("gen_ai.operation.name", "run_task"),
             KeyValue::new("gen_ai.task", req.task.clone()),
