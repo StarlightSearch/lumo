@@ -108,7 +108,7 @@ pub fn init_tracer() -> Result<SdkTracerProvider, TraceError> {
         (
             std::env::var("LANGFUSE_PUBLIC_KEY").expect("LANGFUSE_PUBLIC_KEY must be set"),
             std::env::var("LANGFUSE_SECRET_KEY").expect("LANGFUSE_SECRET_KEY must be set"),
-            std::env::var("LANGFUSE_HOST").expect("LANGFUSE_HOST must be set") + "/api/public/otel/v1/traces",
+            format!("{}/api/public/otel/v1/traces", std::env::var("LANGFUSE_HOST").expect("LANGFUSE_HOST must be set")),
         )
     };
 
