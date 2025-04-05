@@ -1,7 +1,7 @@
 use chrono;
 use opentelemetry::{
     global::{self},
-    trace::{SpanKind, TraceContextExt, Tracer},
+    trace::{SpanKind, Status, TraceContextExt, Tracer},
     Context, KeyValue,
 };
 use serde_json::Value;
@@ -124,6 +124,7 @@ impl AgentTelemetry {
                 .set_attribute(KeyValue::new("gen_ai.tool.success", false));
             cx.span()
                 .set_attribute(KeyValue::new("gen_ai.tool.error", result.to_string()));
+            cx.span().set_status(Status::error("Tool call failed"));
             tracing::error!("Error executing tool call: {}", result);
         }
         cx.span()
