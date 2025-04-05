@@ -297,6 +297,7 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                         step_log.final_answer = Some(response.clone());
                         step_log.observations = Some(vec![response.clone()]);
                         self.telemetry.log_final_answer(&response);
+                        cx.span().end_with_timestamp(std::time::SystemTime::now());
                         return Ok(Some(step_log.clone()));
                     }
                 }
@@ -344,6 +345,7 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                                     step_log.final_answer = Some(answer.clone());
                                     step_log.observations = Some(vec![answer.clone()]);
                                     self.telemetry.log_final_answer(&answer);
+                                    cx.span().end_with_timestamp(std::time::SystemTime::now());
                                     return Ok(Some(step_log.clone()));
                                 }
                                 _ => {
