@@ -1,22 +1,32 @@
 use opentelemetry::KeyValue;
 use opentelemetry_otlp::{WithExportConfig, WithHttpConfig};
-use opentelemetry_sdk::trace::{BatchConfigBuilder, BatchSpanProcessor, SdkTracerProvider, TraceError};
+use opentelemetry_sdk::trace::{BatchConfigBuilder, BatchSpanProcessor, SdkTracerProvider};
 use opentelemetry::trace::TracerProvider;
 use base64::Engine;
+use std::env;
+use dotenv::dotenv;
 
-pub fn init_tracer() -> Result<SdkTracerProvider, TraceError> {
+pub fn init_tracer() -> Option<SdkTracerProvider> {
+    dotenv().ok();
+
     let (langfuse_public_key, langfuse_secret_key, endpoint) = if cfg!(debug_assertions) {
-        (
-            "pk-lf-bc752d0c-f1f1-416d-8792-5ee6f580137e".to_string(),
-            "sk-lf-814738c0-c864-44b4-9ed5-9dcf4c258d2d".to_string(),
-            "http://localhost:3000/api/public/otel/v1/traces".to_string(),
-        )
+        match (env::var("LANGFUSE_PUBLIC_KEY_DEV"), env::var("LANGFUSE_SECRET_KEY_DEV"), env::var("LANGFUSE_HOST_DEV")) {
+            (Ok(public_key), Ok(secret_key), Ok(host)) => (
+                public_key,
+                secret_key,
+                format!("{}/api/public/otel/v1/traces", host),
+            ),
+            _ => return None, // If any key is missing, return None to disable tracing
+        }
     } else {
-        (
-            std::env::var("LANGFUSE_PUBLIC_KEY").expect("LANGFUSE_PUBLIC_KEY must be set"),
-            std::env::var("LANGFUSE_SECRET_KEY").expect("LANGFUSE_SECRET_KEY must be set"),
-            format!("{}/api/public/otel/v1/traces", std::env::var("LANGFUSE_HOST").expect("LANGFUSE_HOST must be set")),
-        )
+        match (env::var("LANGFUSE_PUBLIC_KEY"), env::var("LANGFUSE_SECRET_KEY"), env::var("LANGFUSE_HOST")) {
+            (Ok(public_key), Ok(secret_key), Ok(host)) => (
+                public_key,
+                secret_key,
+                format!("{}/api/public/otel/v1/traces", host),
+            ),
+            _ => return None, // If any key is missing, return None to disable tracing
+        }
     };
 
     // Basic Auth: base64(public_key:secret_key)
@@ -75,5 +85,5 @@ pub fn init_tracer() -> Result<SdkTracerProvider, TraceError> {
     // Set the global tracer provider
     opentelemetry::global::set_tracer_provider(tracer_provider.clone());
 
-    Ok(tracer_provider)
+    Some(tracer_provider)
 }

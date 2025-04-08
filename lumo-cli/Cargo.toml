@@ -40,3 +40,4 @@ opentelemetry-otlp.workspace = true
 tracing-opentelemetry.workspace = true
 
 ctrlc = "3.4"
+dotenv = "0.15.0"    

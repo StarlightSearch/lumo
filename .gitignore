@@ -25,3 +25,7 @@ Cargo.lock
 .vscode/
 
 logs.txt
+
+.env
+.env.local
+.env.*.local

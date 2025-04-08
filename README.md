@@ -156,6 +156,45 @@ lumo -a code -l duckduckgo,python-interpreter
 - `GEMINI_API_KEY`: Your Gemini API key (optional, if using Gemini model)
 - `SERPAPI_API_KEY`: Google Search API key (optional, if using Google Search Tool)
 
+### Tracing Configuration
+
+Lumo supports OpenTelemetry tracing integration with Langfuse. To enable tracing, add the following environment variables to your `.env` file:
+
+#### Development Environment
+```bash
+LANGFUSE_PUBLIC_KEY_DEV=your-dev-public-key
+LANGFUSE_SECRET_KEY_DEV=your-dev-secret-key
+LANGFUSE_HOST_DEV=http://localhost:3000  # Or your dev Langfuse instance URL
+```
+
+#### Production Environment
+```bash
+LANGFUSE_PUBLIC_KEY=your-production-public-key
+LANGFUSE_SECRET_KEY=your-production-secret-key
+LANGFUSE_HOST=https://cloud.langfuse.com  # Or your production Langfuse instance URL
+```
+
+Tracing is optional - if these environment variables are not provided, tracing will be disabled and the application will continue to run normally. When enabled, it will trace:
+- Conversation spans
+- Individual task spans
+- Model inputs and outputs
+- Tool usage and results
+
+#### Server Configuration
+For the server, you can add these variables to your `.env` file or include them in your Docker run command:
+
+```bash
+docker run -p 8080:8080 \
+  -e OPENAI_API_KEY=your-openai-key \
+  -e GOOGLE_API_KEY=your-google-key \
+  -e LANGFUSE_PUBLIC_KEY=your-langfuse-public-key \
+  -e LANGFUSE_SECRET_KEY=your-langfuse-secret-key \
+  -e LANGFUSE_HOST=https://cloud.langfuse.com \
+  lumo-server
+```
+
+The server will automatically detect if tracing is configured and enable/disable it accordingly.
+
 ### Server Configuration
 
 You can configure multiple servers in the configuration file for MCP agent usage. The configuration file location varies by operating system:

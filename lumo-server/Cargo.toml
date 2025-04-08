@@ -29,6 +29,8 @@ opentelemetry-otlp.workspace = true
 tracing-opentelemetry.workspace = true
 chrono.workspace = true
 base64 = "0.22.1"
+dotenv = "0.15.0"
+
 [features]
 code = ["lumo/code-agent"]
 mcp = ["lumo/mcp", "dep:mcp-core", "dep:mcp-client", "dep:tower"]

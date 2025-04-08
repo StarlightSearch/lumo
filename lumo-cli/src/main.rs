@@ -165,12 +165,36 @@ fn create_tool(tool_type: &ToolType) -> Box<dyn AsyncTool> {
         ToolType::PythonInterpreter => Box::new(PythonInterpreterTool::new()),
     }
 }
+
 #[tracing::instrument]
 #[tokio::main]
 async fn main() -> Result<()> {
+    let args = Args::parse();
+
     // Initialize tracing subscriber with custom formatting
-    let tracer_provider = init_tracer()?;
-    let tracer = global::tracer("lumo");
+    let tracer_provider = init_tracer();
+    let (tracer, cx) = if let Some(_) = &tracer_provider {
+        let tracer = global::tracer("lumo");
+        let span = tracer
+            .span_builder("conversation")
+            .with_kind(SpanKind::Internal)
+            .with_start_time(std::time::SystemTime::now())
+            .with_attributes(vec![
+                KeyValue::new("gen_ai.operation.name", "conversation"),
+                KeyValue::new(
+                    "gen_ai.base_url",
+                    args.base_url.clone().unwrap_or(
+                        "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+                            .to_string(),
+                    ),
+                ),
+                KeyValue::new("timestamp", chrono::Utc::now().to_rfc3339()),
+            ])
+            .start(&tracer);
+        (Some(tracer), Some(Context::current_with_span(span)))
+    } else {
+        (None, None)
+    };
 
     let subscriber = fmt::Subscriber::builder()
         .with_env_filter(
@@ -188,7 +212,6 @@ async fn main() -> Result<()> {
     let config_path = Servers::config_path()?;
     let servers = Servers::load()?;
 
-    let args = Args::parse();
     SplashScreen::display(
         &config_path,
         &servers.servers.keys().cloned().collect::<Vec<_>>(),
@@ -309,24 +332,6 @@ The current time is {{current_time}}"#,
 
     let mut file: File = File::create("logs.txt")?;
 
-    let span = tracer
-        .span_builder("conversation")
-        .with_kind(SpanKind::Internal)
-        .with_start_time(std::time::SystemTime::now())
-        .with_attributes(vec![
-            KeyValue::new("gen_ai.operation.name", "conversation"),
-            KeyValue::new(
-                "gen_ai.base_url",
-                args.base_url.unwrap_or(
-                    "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
-                        .to_string(),
-                ),
-            ),
-            KeyValue::new("timestamp", chrono::Utc::now().to_rfc3339()),
-        ])
-        .start(&tracer);
-    let cx = Context::current_with_span(span);
-
     let mut task_count = 1;
     loop {
         let mut cli_printer = CliPrinter::new()?;
@@ -339,27 +344,37 @@ The current time is {{current_time}}"#,
             continue;
         }
         if task == "exit" {
-            cx.span().end();
-            // Ensure all spans are exported before shutting down
-            tracer_provider.force_flush()?;
-            tracer_provider.shutdown()?;
+            if let (Some(provider), Some(context)) = (&tracer_provider, &cx) {
+                context.span().end();
+                // Ensure all spans are exported before shutting down
+                provider.force_flush()?;
+                provider.shutdown()?;
+            }
             CliPrinter::print_goodbye();
             break;
         }
-        let span = tracer
-            .span_builder(task_name)
-            .with_kind(SpanKind::Internal)
-            .with_start_time(std::time::SystemTime::now())
-            .with_attributes(vec![
-                KeyValue::new("gen_ai.operation.name", "task"),
-                KeyValue::new("input.value", task.clone()),
-            ])
-            .start_with_context(&tracer, &cx);
-        let cx2 = Context::current_with_span(span);
+        let cx2 = if let (Some(t), Some(context)) = (&tracer, &cx) {
+            let span = t
+                .span_builder(task_name)
+                .with_kind(SpanKind::Internal)
+                .with_start_time(std::time::SystemTime::now())
+                .with_attributes(vec![
+                    KeyValue::new("gen_ai.operation.name", "task"),
+                    KeyValue::new("input.value", task.clone()),
+                ])
+                .start_with_context(t, context);
+            Some(Context::current_with_span(span))
+        } else {
+            None
+        };
 
         let mut result = agent.stream_run(&task, false)?;
         let mut final_answer = String::new();
-        while let Some(step) = result.next().with_context(cx2.clone()).await {
+        while let Some(step) = if let Some(context) = &cx2 {
+            result.next().with_context(context.clone()).await
+        } else {
+            result.next().await
+        } {
             if let Ok(step) = step {
                 serde_json::to_writer_pretty(&mut file, &step)?;
                 let answer = CliPrinter::print_step(&step)?;
@@ -368,8 +383,10 @@ The current time is {{current_time}}"#,
                 println!("Error: {:?}", step);
             }
         }
-        cx2.span().set_attribute(KeyValue::new("output.value", final_answer));
-        cx2.span().end();
+        if let Some(context) = &cx2 {
+            context.span().set_attribute(KeyValue::new("output.value", final_answer));
+            context.span().end();
+        }
         task_count += 1;
     }
 

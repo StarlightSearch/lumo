@@ -30,7 +30,7 @@ RUN apt-get update && apt-get install -y \
     libcurl4-openssl-dev
 
 COPY --from=builder /app/target/release/lumo-server /usr/local/bin
-COPY --from=builder /app/lumo-server/src/config/servers.yaml /app/src/config/servers.yaml
+COPY --from=builder /app/lumo-server/src/config/servers.yaml /usr/local/bin/src/config/servers.yaml
 
 EXPOSE 8080
 

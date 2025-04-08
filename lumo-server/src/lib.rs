@@ -20,7 +20,7 @@ use opentelemetry::{
 };
 use opentelemetry_otlp::{WithExportConfig, WithHttpConfig};
 use opentelemetry_sdk::trace::{self as sdktrace, BatchConfigBuilder, BatchSpanProcessor};
-use opentelemetry_sdk::trace::{SdkTracerProvider, TraceError};
+use opentelemetry_sdk::trace::SdkTracerProvider;
 use tracing::instrument;
 
 #[cfg(feature = "code")]
@@ -39,6 +39,7 @@ use actix_web::http::header;
 use serde::{Deserialize, Serialize};
 use std::net::TcpListener;
 use std::str::FromStr;
+use dotenv::dotenv;
 
 #[derive(Deserialize)]
 struct RunTaskRequest {
@@ -97,19 +98,35 @@ fn create_tool(tool_type: &ToolType) -> Box<dyn AsyncTool> {
     }
 }
 
-pub fn init_tracer() -> Result<SdkTracerProvider, TraceError> {
+pub fn init_tracer() -> Option<SdkTracerProvider> {
+    dotenv().ok();
+
     let (langfuse_public_key, langfuse_secret_key, endpoint) = if cfg!(debug_assertions) {
-        (
-            "pk-lf-b3403582-e669-4ebf-91df-b80921f13b12".to_string(),
-            "sk-lf-01e1ea91-570a-44a6-9543-dc803a931041".to_string(),
-            "http://localhost:3000/api/public/otel/v1/traces".to_string(),
-        )
+        match (
+            std::env::var("LANGFUSE_PUBLIC_KEY_DEV"),
+            std::env::var("LANGFUSE_SECRET_KEY_DEV"),
+            std::env::var("LANGFUSE_HOST_DEV"),
+        ) {
+            (Ok(public_key), Ok(secret_key), Ok(host)) => (
+                public_key,
+                secret_key,
+                format!("{}/api/public/otel/v1/traces", host),
+            ),
+            _ => return None, // If any key is missing, return None to disable tracing
+        }
     } else {
-        (
-            std::env::var("LANGFUSE_PUBLIC_KEY").expect("LANGFUSE_PUBLIC_KEY must be set"),
-            std::env::var("LANGFUSE_SECRET_KEY").expect("LANGFUSE_SECRET_KEY must be set"),
-            format!("{}/api/public/otel/v1/traces", std::env::var("LANGFUSE_HOST").expect("LANGFUSE_HOST must be set")),
-        )
+        match (
+            std::env::var("LANGFUSE_PUBLIC_KEY"),
+            std::env::var("LANGFUSE_SECRET_KEY"),
+            std::env::var("LANGFUSE_HOST"),
+        ) {
+            (Ok(public_key), Ok(secret_key), Ok(host)) => (
+                public_key,
+                secret_key,
+                format!("{}/api/public/otel/v1/traces", host),
+            ),
+            _ => return None, // If any key is missing, return None to disable tracing
+        }
     };
 
     // Basic Auth: base64(public_key:secret_key)
@@ -122,15 +139,16 @@ pub fn init_tracer() -> Result<SdkTracerProvider, TraceError> {
     let mut headers = std::collections::HashMap::new();
     headers.insert("Authorization".to_string(), auth_header);
 
-    let otlp_exporter = opentelemetry_otlp::SpanExporter::builder()
+    let otlp_exporter = match opentelemetry_otlp::SpanExporter::builder()
         .with_http()
         .with_endpoint(endpoint)
         .with_protocol(opentelemetry_otlp::Protocol::HttpBinary)
         .with_headers(headers)
-        // .build()
-        // .with_tonic().with_endpoint("http://localhost:4317")
         .build()
-        .unwrap();
+    {
+        Ok(exporter) => exporter,
+        Err(_) => return None,
+    };
 
     let batch = BatchSpanProcessor::builder(otlp_exporter)
         .with_batch_config(
@@ -141,7 +159,6 @@ pub fn init_tracer() -> Result<SdkTracerProvider, TraceError> {
         .build();
 
     let tracer_provider = sdktrace::SdkTracerProvider::builder()
-        // .with_span_processor(batch_processor)
         .with_span_processor(batch)
         .with_resource(
             opentelemetry_sdk::resource::Resource::builder()
@@ -168,7 +185,7 @@ pub fn init_tracer() -> Result<SdkTracerProvider, TraceError> {
     // Set the global tracer provider
     opentelemetry::global::set_tracer_provider(tracer_provider.clone());
 
-    Ok(tracer_provider)
+    Some(tracer_provider)
 }
 
 #[get("/health_check")]
@@ -327,6 +344,7 @@ async fn run_task(req: Json<RunTaskRequest>) -> Result<impl Responder, actix_web
 
 pub fn run(listener: TcpListener) -> std::io::Result<Server> {
     Ok(HttpServer::new(move || {
+        println!("Config File Path: {:?}", Servers::config_path().unwrap());
         let _ = Servers::load().map_err(actix_web::error::ErrorInternalServerError);
         let cors = Cors::default()
             .allow_any_origin()

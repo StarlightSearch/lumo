@@ -10,10 +10,6 @@
 #     - "path/to/directory"
 #   env: null
 
-<<<<<<< HEAD
-
-=======
->>>>>>> 75df5799533e035b8c4966674ac357bc49d1c1b7
 # You can add more server configurations below
 # Example:
 # custom_server:
