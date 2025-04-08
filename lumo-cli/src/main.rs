@@ -21,6 +21,8 @@ use mcp_client::{
     Transport,
 };
 use mcp_core::protocol::JsonRpcMessage;
+use opentelemetry::trace::{FutureExt, SpanKind, TraceContextExt, Tracer};
+use opentelemetry::{global, Context, KeyValue};
 use std::collections::HashMap;
 use std::fs::File;
 use std::io;
@@ -34,6 +36,8 @@ mod cli_utils;
 use cli_utils::{CliPrinter, ToolCallsFormatter};
 mod splash;
 use splash::SplashScreen;
+mod telemetry;
+use telemetry::init_tracer;
 
 #[derive(Debug, Clone, ValueEnum)]
 enum AgentType {
@@ -161,10 +165,12 @@ fn create_tool(tool_type: &ToolType) -> Box<dyn AsyncTool> {
         ToolType::PythonInterpreter => Box::new(PythonInterpreterTool::new()),
     }
 }
-
+#[tracing::instrument]
 #[tokio::main]
 async fn main() -> Result<()> {
     // Initialize tracing subscriber with custom formatting
+    let tracer_provider = init_tracer()?;
+    let tracer = global::tracer("lumo");
 
     let subscriber = fmt::Subscriber::builder()
         .with_env_filter(
@@ -217,17 +223,15 @@ async fn main() -> Result<()> {
                 .model_id(&args.model_id)
                 .ctx_length(20000)
                 .temperature(Some(0.1))
-                .url(
-                    args.base_url
-                        .unwrap_or("http://localhost:11434".to_string()),
-                )
+                .url(args.base_url.as_deref().unwrap_or("http://localhost:11434"))
                 .with_native_tools(true)
                 .build(),
         ),
     };
 
     let system_prompt = match args.model_type {
-        ModelType::Ollama => Some(r#"You are a helpful assistant that can answer questions and help with tasks. You are given access tools which you can use to answer the user's question. 
+        ModelType::Ollama => Some(
+            r#"You are a helpful assistant that can answer questions and help with tasks. You are given access tools which you can use to answer the user's question. 
         
 1. You can use multiple tools to answer the user's question.
 2. Do not use the tool with the same parameters more than once.
@@ -235,9 +239,9 @@ async fn main() -> Result<()> {
 4. If you don't have enough information to answer the user's question, say so.
 5. When needed, provide references to the sources you used to answer the user's question. You can provide these references in a list format at the end of your response.
 
-The current time is {{current_time}}"#),
-        _=> servers.system_prompt.as_deref(),
-
+The current time is {{current_time}}"#,
+        ),
+        _ => servers.system_prompt.as_deref(),
     };
 
     let mut agent = match args.agent_type {
@@ -305,28 +309,68 @@ The current time is {{current_time}}"#),
 
     let mut file: File = File::create("logs.txt")?;
 
+    let span = tracer
+        .span_builder("conversation")
+        .with_kind(SpanKind::Internal)
+        .with_start_time(std::time::SystemTime::now())
+        .with_attributes(vec![
+            KeyValue::new("gen_ai.operation.name", "conversation"),
+            KeyValue::new(
+                "gen_ai.base_url",
+                args.base_url.unwrap_or(
+                    "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions"
+                        .to_string(),
+                ),
+            ),
+            KeyValue::new("timestamp", chrono::Utc::now().to_rfc3339()),
+        ])
+        .start(&tracer);
+    let cx = Context::current_with_span(span);
+
+    let mut task_count = 1;
     loop {
         let mut cli_printer = CliPrinter::new()?;
         let task = cli_printer.prompt_user()?;
+
+        let task_name = format!("Task {}", task_count);
 
         if task.is_empty() {
             CliPrinter::handle_empty_input();
             continue;
         }
         if task == "exit" {
+            cx.span().end();
+            // Ensure all spans are exported before shutting down
+            tracer_provider.force_flush()?;
+            tracer_provider.shutdown()?;
             CliPrinter::print_goodbye();
             break;
         }
+        let span = tracer
+            .span_builder(task_name)
+            .with_kind(SpanKind::Internal)
+            .with_start_time(std::time::SystemTime::now())
+            .with_attributes(vec![
+                KeyValue::new("gen_ai.operation.name", "task"),
+                KeyValue::new("input.value", task.clone()),
+            ])
+            .start_with_context(&tracer, &cx);
+        let cx2 = Context::current_with_span(span);
 
         let mut result = agent.stream_run(&task, false)?;
-        while let Some(step) = result.next().await {
+        let mut final_answer = String::new();
+        while let Some(step) = result.next().with_context(cx2.clone()).await {
             if let Ok(step) = step {
                 serde_json::to_writer_pretty(&mut file, &step)?;
-                CliPrinter::print_step(&step)?;
+                let answer = CliPrinter::print_step(&step)?;
+                final_answer = answer;
             } else {
                 println!("Error: {:?}", step);
             }
         }
+        cx2.span().set_attribute(KeyValue::new("output.value", final_answer));
+        cx2.span().end();
+        task_count += 1;
     }
 
     Ok(())

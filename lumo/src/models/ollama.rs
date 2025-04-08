@@ -120,8 +120,8 @@ impl OllamaModelBuilder {
         self
     }
 
-    pub fn url(mut self, url: String) -> Self {
-        self.url = Some(url);
+    pub fn url(mut self, url: &str) -> Self {
+        self.url = Some(url.to_string());
         self
     }
 

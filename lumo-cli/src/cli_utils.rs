@@ -123,7 +123,7 @@ impl CliPrinter {
         println!("{}", "👋 Goodbye!".bright_blue().bold());
     }
 
-    pub fn print_step(step: &Step) -> Result<()> {
+    pub fn print_step(step: &Step) -> Result<String> {
         match step {
             Step::ActionStep(action_step) => {
                 // println!("\n{} {}", "📍 Step:".bright_cyan().bold(), action_step.step);
@@ -143,6 +143,7 @@ impl CliPrinter {
 
                 if let Some(answer) = &action_step.final_answer {
                     Self::print_final_answer(answer)?;
+                    return Ok(answer.clone());
                 }
             }
             Step::PlanningStep(plan, facts) => {
@@ -165,7 +166,7 @@ impl CliPrinter {
             _ => {}
         }
 
-        Ok(())
+        Ok("".to_string())
     }
 
     pub fn print_regular_tool_call(tool_call: &[lumo::models::openai::ToolCall]) {
