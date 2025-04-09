@@ -28,7 +28,7 @@ impl AgentTelemetry {
         let tracer = global::tracer(tracer_name);
 
         // Get current timestamp for consistent ordering
-        let start_time = chrono::Utc::now().to_rfc3339();
+        let start_time = chrono::Local::now().to_rfc3339();
 
         let span = tracer
             .span_builder(format!("Step {}", step_number))
@@ -95,11 +95,7 @@ impl AgentTelemetry {
             .start_with_context(&tracer, &cx);
         let cx = Context::current_with_span(span);
 
-        tracing::info!(
-            tool = %function_name,
-            args = ?arguments,
-            "Executing tool call:"
-        );
+       
         cx.span()
             .set_attribute(KeyValue::new("gen_ai.tool.name", function_name.to_string()));
         cx.span().set_attributes(vec![

@@ -212,7 +212,6 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
         match log_entry {
             Step::ActionStep(step_log) => {
                 let cx = self.telemetry.start_step(self.get_step_number() as i64);
-   
 
                 let agent_memory = self.base_agent.write_inner_memory_from_logs(None)?;
                 self.base_agent.input_messages = Some(agent_memory.clone());
@@ -297,6 +296,10 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                         step_log.final_answer = Some(response.clone());
                         step_log.observations = Some(vec![response.clone()]);
                         self.telemetry.log_final_answer(&response);
+                        cx.span().set_attribute(opentelemetry::KeyValue::new(
+                            "end_time",
+                            chrono::Utc::now().to_rfc3339(),
+                        ));
                         cx.span().end_with_timestamp(std::time::SystemTime::now());
                         return Ok(Some(step_log.clone()));
                     }
@@ -315,54 +318,66 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                         .map(|agent| agent.name())
                         .collect::<Vec<_>>();
 
-                    let managed_agent = self
-                        .base_agent
-                        .managed_agents
-                        .iter_mut()
-                        .find(|agent| tools[0].function.name == agent.name());
-
-                    if let Some(managed_agent) = managed_agent {
-                        for tool in &tools {
-                            let task = tool.function.arguments.get("task");
-                            if let Some(task) = task {
-                                if let Some(task_str) = task.as_str() {
-                                    let result = managed_agent.run(task_str, true).await?;
-                                    observations.push(result);
-                                } else {
-                                    step_log.observations =
-                                        Some(vec!["Task should be a string.".to_string()]);
-                                }
-                            } else {
-                                step_log.observations = Some(vec!["No task provided to managed agent. Provide the task as an argument to the tool call.".to_string()]);
+                    let mut called_tools = Vec::new();
+                    for tool in &tools {
+                        let function_name = tool.function.name.clone();
+                        match function_name.as_str() {
+                            "final_answer" => {
+                                let answer = tools_ref.call(&tool.function).await?;
+                                step_log.final_answer = Some(answer.clone());
+                                step_log.observations = Some(vec![answer.clone()]);
+                                self.telemetry.log_final_answer(&answer);
+                                cx.span().set_attribute(opentelemetry::KeyValue::new(
+                                    "end_time",
+                                    chrono::Utc::now().to_rfc3339(),
+                                ));
+                                cx.span().end_with_timestamp(std::time::SystemTime::now());
+                                return Ok(Some(step_log.clone()));
                             }
-                        }
-                    } else {
-                        for tool in &tools {
-                            let function_name = tool.function.name.clone();
-                            match function_name.as_str() {
-                                "final_answer" => {
-                                    let answer = tools_ref.call(&tool.function).await?;
-                                    step_log.final_answer = Some(answer.clone());
-                                    step_log.observations = Some(vec![answer.clone()]);
-                                    self.telemetry.log_final_answer(&answer);
-                                    cx.span().end_with_timestamp(std::time::SystemTime::now());
-                                    return Ok(Some(step_log.clone()));
-                                }
-                                _ => {
-                                    if !managed_agent_names.contains(&function_name.as_str()) {
-                                        let tool_call = tools_ref.call(&tool.function);
-                                        futures.push(tool_call);
+                            _ => {
+                                if !managed_agent_names.contains(&function_name.as_str()) {
+                                    let tool_call = tools_ref.call(&tool.function);
+                                    tracing::info!(
+                                        tool = %function_name,
+                                        args = ?tool.function.arguments,
+                                        "Executing tool call:"
+                                    );
+                                    called_tools.push(tool.function.clone());
+                                    futures.push(tool_call);
+                                } else {
+                                    let task = tool.function.arguments.get("task");
+                                    if let Some(task) = task {
+                                        if let Some(task_str) = task.as_str() {
+                                            tracing::info!(
+                                                tool = %function_name,
+                                                args = ?tool.function.arguments,
+                                                "Executing tool call: Agent Selected {}",
+                                                function_name
+                                            );
+                                            let result = self
+                                                .base_agent
+                                                .managed_agents
+                                                .iter_mut()
+                                                .find(|agent| {
+                                                    agent.name() == function_name.as_str()
+                                                })
+                                                .unwrap()
+                                                .run(task_str, true)
+                                                .await?;
+                                            observations.push(result);
+                                        }
                                     }
                                 }
                             }
                         }
                     }
+                    // }
 
                     let results = join_all(futures).await;
                     for (i, result) in results.into_iter().enumerate() {
                         let cx = self.telemetry.log_tool_execution(
-                            &tools[i].function.name,
-                            &tools[i].function.arguments,
+                            &called_tools[i].name,
+                            &called_tools[i].arguments,
                             &cx,
                         );
                         match result {
@@ -375,13 +390,22 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                                 self.telemetry.log_tool_result(&e.to_string(), false, &cx);
                             }
                         }
+                        cx.span().set_attribute(opentelemetry::KeyValue::new(
+                            "end_time",
+                            chrono::Local::now().to_rfc3339(),
+                        ));
+                        cx.span().end_with_timestamp(std::time::SystemTime::now());
                     }
-                    cx.span().end_with_timestamp(std::time::SystemTime::now());
+                  
                 }
 
                 step_log.observations = Some(observations);
                 self.telemetry
                     .log_observations(&step_log.observations.clone().unwrap_or_default());
+                cx.span().set_attribute(opentelemetry::KeyValue::new(
+                    "end_time",
+                    chrono::Local::now().to_rfc3339(),
+                ));
                 cx.span().end_with_timestamp(std::time::SystemTime::now());
                 Ok(Some(step_log.clone()))
             }

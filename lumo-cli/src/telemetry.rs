@@ -6,15 +6,16 @@ use base64::Engine;
 use std::env;
 use dotenv::dotenv;
 
-pub fn init_tracer() -> Option<SdkTracerProvider> {
+pub fn init_tracer() -> Option<(SdkTracerProvider, String)> {
     dotenv().ok();
 
-    let (langfuse_public_key, langfuse_secret_key, endpoint) = if cfg!(debug_assertions) {
+    let (langfuse_public_key, langfuse_secret_key, endpoint, host) = if cfg!(debug_assertions) {
         match (env::var("LANGFUSE_PUBLIC_KEY_DEV"), env::var("LANGFUSE_SECRET_KEY_DEV"), env::var("LANGFUSE_HOST_DEV")) {
             (Ok(public_key), Ok(secret_key), Ok(host)) => (
                 public_key,
                 secret_key,
                 format!("{}/api/public/otel/v1/traces", host),
+                host,
             ),
             _ => return None, // If any key is missing, return None to disable tracing
         }
@@ -24,6 +25,7 @@ pub fn init_tracer() -> Option<SdkTracerProvider> {
                 public_key,
                 secret_key,
                 format!("{}/api/public/otel/v1/traces", host),
+                host,
             ),
             _ => return None, // If any key is missing, return None to disable tracing
         }
@@ -41,7 +43,7 @@ pub fn init_tracer() -> Option<SdkTracerProvider> {
 
     let otlp_exporter = opentelemetry_otlp::SpanExporter::builder()
         .with_http()
-        .with_endpoint(endpoint)
+        .with_endpoint(endpoint.clone())
         .with_protocol(opentelemetry_otlp::Protocol::HttpBinary)
         .with_headers(headers)
         // .build()
@@ -85,5 +87,5 @@ pub fn init_tracer() -> Option<SdkTracerProvider> {
     // Set the global tracer provider
     opentelemetry::global::set_tracer_provider(tracer_provider.clone());
 
-    Some(tracer_provider)
+    Some((tracer_provider, host))
 }

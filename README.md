@@ -160,6 +160,8 @@ lumo -a code -l duckduckgo,python-interpreter
 
 Lumo supports OpenTelemetry tracing integration with Langfuse. To enable tracing, add the following environment variables to your `.env` file:
 
+> **Note**: All telemetry data is private and owned by you. The data is only stored in your Langfuse instance and is not shared with any third parties.
+
 #### Development Environment
 ```bash
 LANGFUSE_PUBLIC_KEY_DEV=your-dev-public-key

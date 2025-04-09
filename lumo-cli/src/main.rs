@@ -212,10 +212,17 @@ async fn main() -> Result<()> {
     let config_path = Servers::config_path()?;
     let servers = Servers::load()?;
 
+    let endpoint = if let Some((_, endpoint)) = &tracer_provider {
+        Some(endpoint.clone())
+    } else {
+        None
+    };
+
     SplashScreen::display(
         &config_path,
         &servers.servers.keys().cloned().collect::<Vec<_>>(),
         &args.model_id,
+        endpoint,
     );
 
     let tools: Vec<Box<dyn AsyncTool>> = args.tools.iter().map(create_tool).collect();
@@ -344,7 +351,7 @@ The current time is {{current_time}}"#,
             continue;
         }
         if task == "exit" {
-            if let (Some(provider), Some(context)) = (&tracer_provider, &cx) {
+            if let (Some((provider, _)), Some(context)) = (&tracer_provider, &cx) {
                 context.span().end();
                 // Ensure all spans are exported before shutting down
                 provider.force_flush()?;

@@ -3,7 +3,12 @@ use colored::*;
 pub struct SplashScreen;
 
 impl SplashScreen {
-    pub fn display(config_path: &std::path::Path, servers: &[String], model_id: &str) {
+    pub fn display(
+        config_path: &std::path::Path,
+        servers: &[String],
+        model_id: &str,
+        endpoint: Option<String>,
+    ) {
         let logo = r#"
 $$\      $$\   $$\ $$\      $$\  $$$$$$\  
 $$ |     $$ |  $$ |$$$\    $$$ |$$  __$$\ 
@@ -42,10 +47,22 @@ $$$$$$$$\\$$$$$$  |$$ | \_/ $$ | $$$$$$  |
             model_id.to_string().bright_white()
         );
 
+        if let Some(endpoint) = endpoint {
+            println!(
+                "{} {}",
+                "Tracing Endpoint:".bright_yellow(),
+                endpoint.bright_white()
+            );
+        } else {
+            println!("{}\n", "Tracing Disabled".bright_yellow());
+        }
+
         println!("\n{}", "Available MCP Servers:".bright_yellow());
         for server in servers {
             println!("  ├─ {}", server.bright_white());
         }
+
+
 
         println!("{}", "━".repeat(60).bright_blue());
         println!(); // Empty line for spacing

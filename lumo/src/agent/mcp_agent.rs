@@ -1,13 +1,24 @@
 use std::collections::HashMap;
 
 use crate::{
-    agent::parse_response, errors::AgentError, models::{model_traits::Model, openai::{FunctionCall, ToolCall}, types::Message}, prompts::TOOL_CALLING_SYSTEM_PROMPT, tools::{ToolFunctionInfo, ToolGroup, ToolInfo, ToolType}
+    agent::parse_response,
+    errors::AgentError,
+    models::{
+        model_traits::Model,
+        openai::{FunctionCall, ToolCall},
+        types::Message,
+    },
+    prompts::TOOL_CALLING_SYSTEM_PROMPT,
+    telemetry::AgentTelemetry,
+    tools::{ToolFunctionInfo, ToolGroup, ToolInfo, ToolType},
 };
 use anyhow::Result;
 use async_trait::async_trait;
 use futures::future::join_all;
 use mcp_client::{Error, McpClient, McpClientTrait};
 use mcp_core::{protocol::JsonRpcMessage, Content, Tool};
+use opentelemetry::trace::{FutureExt, TraceContextExt};
+use serde_json::json;
 use tower::Service;
 use tracing::{instrument, Span};
 
@@ -38,6 +49,7 @@ where
     base_agent: MultiStepAgent<M>,
     mcp_clients: Vec<McpClient<S>>,
     tools: Vec<Tool>,
+    telemetry: AgentTelemetry,
 }
 
 impl From<Tool> for ToolInfo {
@@ -61,7 +73,7 @@ impl From<ToolInfo> for Tool {
             tool.function.name,
             tool.function.description,
             serde_json::to_value(tool.function.parameters).unwrap(),
-            None
+            None,
         )
     }
 }
@@ -114,6 +126,7 @@ where
             base_agent,
             mcp_clients,
             tools: tools.to_vec(),
+            telemetry: AgentTelemetry::new("lumo"),
         })
     }
 }
@@ -166,10 +179,7 @@ where
         self.system_prompt = system_prompt;
         self
     }
-    pub fn with_managed_agents(
-        mut self,
-        managed_agents: Vec<Box<dyn Agent>>,
-    ) -> Self {
+    pub fn with_managed_agents(mut self, managed_agents: Vec<Box<dyn Agent>>) -> Self {
         self.managed_agents = managed_agents;
         self
     }
@@ -281,19 +291,43 @@ where
     async fn step(&mut self, log_entry: &mut Step) -> Result<Option<AgentStep>, AgentError> {
         match log_entry {
             Step::ActionStep(step_log) => {
-                let span = Span::current();
-                span.record("step_type", "action");
+                let cx = self.telemetry.start_step(self.get_step_number() as i64);
 
                 let agent_memory = self.base_agent.write_inner_memory_from_logs(None)?;
                 self.base_agent.input_messages = Some(agent_memory.clone());
                 step_log.agent_memory = Some(agent_memory.clone());
-
-                let tools = self
+                self.telemetry
+                    .log_agent_memory(&serde_json::to_value(&agent_memory).unwrap_or_default());
+                let mut tools = self
                     .tools
                     .iter()
                     .cloned()
                     .map(ToolInfo::from)
                     .collect::<Vec<_>>();
+
+                let managed_agents = self
+                    .base_agent
+                    .managed_agents
+                    .iter()
+                    .map(|agent| ToolInfo {
+                        tool_type: ToolType::Function,
+                        function: ToolFunctionInfo {
+                            name: agent.name(),
+                            description: agent.description(),
+                            parameters: json!({
+                                "type": "object",
+                                "properties": {
+                                    "task": {
+                                        "type": "string",
+                                        "description": "The task to perform"
+                                    }
+                                }
+                            }),
+                        },
+                    })
+                    .collect::<Vec<_>>();
+
+                tools.extend(managed_agents);
 
                 // Add final answer tool
                 // let final_answer_tool = ToolInfo::from(Tool::new(
@@ -326,18 +360,20 @@ where
                             vec!["Observation:".to_string()],
                         )])),
                     )
+                    .with_context(cx.clone())
                     .await?;
 
                 step_log.llm_output = Some(model_message.get_response().unwrap_or_default());
                 let mut observations = Vec::new();
                 let mut tools = model_message.get_tools_used()?;
-                step_log.tool_call = Some(tools.clone());
 
-                tracing::info!(
-                    step = self.get_step_number(),
-                    tool_calls = serde_json::to_string_pretty(&tools).unwrap_or_default(),
-                    "Agent selected tools"
-                );
+                step_log.tool_call = if tools.is_empty() {
+                    None
+                } else {
+                    Some(tools.clone())
+                };
+
+                self.telemetry.log_tool_calls(&tools, &cx);
 
                 if let Ok(response) = model_message.get_response() {
                     if !response.trim().is_empty() {
@@ -350,22 +386,30 @@ where
                                     arguments: action["arguments"].clone(),
                                 },
                             }];
-                            tracing::info!(
-                                tool_calls = serde_json::to_string_pretty(&tools).unwrap_or_default(),
-                                "Agent selected tools"
-                            );
+
                             step_log.tool_call = Some(tools.clone());
+                            self.telemetry.log_tool_calls(&tools, &cx);
                         }
                     }
                     if tools.is_empty() {
                         self.base_agent.write_inner_memory_from_logs(None)?;
                         step_log.final_answer = Some(response.clone());
                         step_log.observations = Some(vec![response.clone()]);
+                        self.telemetry.log_final_answer(&response);
+                        cx.span().end_with_timestamp(std::time::SystemTime::now());
                         return Ok(Some(step_log.clone()));
                     }
                 }
 
-                for tool in tools {
+                let managed_agent_names = self
+                    .base_agent
+                    .managed_agents
+                    .iter()
+                    .map(|agent| agent.name())
+                    .collect::<Vec<_>>();
+
+                let mut called_tools = Vec::new();
+                for tool in &tools {
                     let function_name = tool.clone().function.name;
 
                     match function_name.as_str() {
@@ -382,24 +426,59 @@ where
                                 args = ?tool.function.arguments,
                                 "Executing tool call:"
                             );
+                            called_tools.push(tool.function.clone());
 
                             let mut futures = Vec::new();
-                            for client in &self.mcp_clients {
-                                if client
-                                    .list_tools(None)
-                                    .await.map_err(|e| AgentError::Execution(e.to_string()))?
-                                    .tools
-                                    .iter()
-                                    .any(|t| t.name == tool.function.name)
+
+                            if !managed_agent_names.contains(&function_name.as_str()) {
+                                // Run tool
                                 {
-                                    futures.push(client.call_tool(
-                                        &tool.function.name,
-                                        tool.function.arguments.clone(),
-                                    ));
+                                    for client in &self.mcp_clients {
+                                        if client
+                                            .list_tools(None)
+                                            .await
+                                            .map_err(|e| AgentError::Execution(e.to_string()))?
+                                            .tools
+                                            .iter()
+                                            .any(|t| t.name == tool.function.name)
+                                        {
+                                            futures.push(client.call_tool(
+                                                &tool.function.name,
+                                                tool.function.arguments.clone(),
+                                            ));
+                                        }
+                                    }
+                                }
+                            } else {
+                                // Run managed agent
+                                let task = tool.function.arguments.get("task");
+                                if let Some(task) = task {
+                                    if let Some(task_str) = task.as_str() {
+                                        tracing::info!(
+                                            tool = %function_name,
+                                            args = ?tool.function.arguments,
+                                            "Executing tool call: Agent Selected {}",
+                                            function_name
+                                        );
+                                        let result = self
+                                            .base_agent
+                                            .managed_agents
+                                            .iter_mut()
+                                            .find(|agent| agent.name() == function_name.as_str())
+                                            .unwrap()
+                                            .run(task_str, true)
+                                            .await?;
+                                        observations.push(result);
+                                    }
                                 }
                             }
                             let results = join_all(futures).await;
-                            for result in results {
+                            for (i, result) in results.into_iter().enumerate() {
+                                let cx = self.telemetry.log_tool_execution(
+                                    &called_tools[i].name,
+                                    &called_tools[i].arguments,
+                                    &cx,
+                                );
                                 match result {
                                     Ok(observation) => {
                                         let text = observation
@@ -421,6 +500,8 @@ where
                                             observation = %formatted,
                                             "Tool call succeeded"
                                         );
+                                        self.telemetry.log_tool_result(&text, true, &cx);
+
                                         observations.push(formatted);
                                     }
                                     Err(e) => {
@@ -431,9 +512,12 @@ where
                                             error = %e,
                                             "Tool call failed"
                                         );
+                                        self.telemetry.log_tool_result(&error_msg, false, &cx);
+
                                         observations.push(error_msg);
                                     }
                                 }
+                                cx.span().end_with_timestamp(std::time::SystemTime::now());
                             }
                         }
                     }
@@ -459,6 +543,7 @@ where
                         step_log.observations.clone().unwrap_or_default().join("\n")
                     );
                 }
+                cx.span().end_with_timestamp(std::time::SystemTime::now());
                 Ok(Some(step_log.clone()))
             }
             _ => {
