@@ -7,6 +7,7 @@ pub mod final_answer;
 pub mod google_search;
 pub mod tool_traits;
 pub mod visit_website;
+pub mod exa_search;
 
 #[cfg(feature = "code-agent")]
 pub mod python_interpreter;

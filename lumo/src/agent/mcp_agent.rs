@@ -20,7 +20,7 @@ use mcp_core::{protocol::JsonRpcMessage, Content, Tool};
 use opentelemetry::trace::{FutureExt, TraceContextExt};
 use serde_json::json;
 use tower::Service;
-use tracing::{instrument, Span};
+use tracing::instrument;
 
 use super::{Agent, AgentStep, MultiStepAgent, Step};
 

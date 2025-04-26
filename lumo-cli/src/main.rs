@@ -12,6 +12,7 @@ use lumo::models::model_traits::{Model, ModelResponse};
 use lumo::models::ollama::{OllamaModel, OllamaModelBuilder};
 use lumo::models::openai::{OpenAIServerModel, OpenAIServerModelBuilder};
 use lumo::models::types::Message;
+use lumo::tools::exa_search::ExaSearchTool;
 use lumo::tools::{
     AsyncTool, DuckDuckGoSearchTool, GoogleSearchTool, PythonInterpreterTool, ToolInfo,
     VisitWebsiteTool,
@@ -52,6 +53,7 @@ enum ToolType {
     VisitWebsite,
     GoogleSearchTool,
     PythonInterpreter,
+    ExaSearchTool,
 }
 
 #[derive(Debug, Clone, ValueEnum)]
@@ -163,6 +165,7 @@ fn create_tool(tool_type: &ToolType) -> Box<dyn AsyncTool> {
         ToolType::VisitWebsite => Box::new(VisitWebsiteTool::new()),
         ToolType::GoogleSearchTool => Box::new(GoogleSearchTool::new(None)),
         ToolType::PythonInterpreter => Box::new(PythonInterpreterTool::new()),
+        ToolType::ExaSearchTool => Box::new(ExaSearchTool::new(3, None)),
     }
 }
 
