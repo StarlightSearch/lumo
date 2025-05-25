@@ -7,7 +7,7 @@ use config::Servers;
 use lumo::{
     agent::{Agent, FunctionCallingAgentBuilder},
     models::{openai::OpenAIServerModelBuilder, types::Message},
-    tools::{AsyncTool, DuckDuckGoSearchTool, GoogleSearchTool, VisitWebsiteTool},
+    tools::{exa_search::ExaSearchTool, AsyncTool, DuckDuckGoSearchTool, GoogleSearchTool, VisitWebsiteTool},
 };
 use opentelemetry::trace::FutureExt;
 use opentelemetry::trace::Tracer;
@@ -54,6 +54,8 @@ struct RunTaskRequest {
     history: Option<Vec<Message>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     agent_type: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_results: Option<usize>,
 }
 
 #[derive(Serialize)]
@@ -66,6 +68,7 @@ enum ToolType {
     DuckDuckGo,
     VisitWebsite,
     GoogleSearchTool,
+    ExaSearchTool,
     #[cfg(feature = "code")]
     PythonInterpreter,
 }
@@ -78,6 +81,7 @@ impl FromStr for ToolType {
             "DuckDuckGo" => Ok(ToolType::DuckDuckGo),
             "VisitWebsite" => Ok(ToolType::VisitWebsite),
             "GoogleSearchTool" => Ok(ToolType::GoogleSearchTool),
+            "ExaSearchTool" => Ok(ToolType::ExaSearchTool),
             #[cfg(feature = "code")]
             "PythonInterpreter" => Ok(ToolType::PythonInterpreter),
             _ => Err(actix_web::error::ErrorBadRequest(format!(
@@ -88,11 +92,12 @@ impl FromStr for ToolType {
     }
 }
 
-fn create_tool(tool_type: &ToolType) -> Box<dyn AsyncTool> {
+fn create_tool(tool_type: &ToolType, max_results: Option<usize>) -> Box<dyn AsyncTool> {
     match tool_type {
         ToolType::DuckDuckGo => Box::new(DuckDuckGoSearchTool::new()),
         ToolType::VisitWebsite => Box::new(VisitWebsiteTool::new()),
         ToolType::GoogleSearchTool => Box::new(GoogleSearchTool::new(None)),
+        ToolType::ExaSearchTool => Box::new(ExaSearchTool::new(max_results.unwrap_or(5), None)),
         #[cfg(feature = "code")]
         ToolType::PythonInterpreter => Box::new(PythonInterpreterTool::new()),
     }
@@ -313,7 +318,7 @@ async fn run_task(req: Json<RunTaskRequest>) -> Result<impl Responder, actix_web
             let tools = if let Some(tools) = &req.tools {
                 tools
                     .iter()
-                    .map(|tool| ToolType::from_str(tool).map(|t| create_tool(&t)))
+                    .map(|tool| ToolType::from_str(tool).map(|t| create_tool(&t, req.max_results)))
                     .collect::<Result<Vec<_>, _>>()?
             } else {
                 vec![]

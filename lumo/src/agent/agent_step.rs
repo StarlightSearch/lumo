@@ -1,6 +1,9 @@
 use serde::Serialize;
 
-use crate::{errors::AgentError, models::{openai::ToolCall, types::Message}};
+use crate::{
+    errors::AgentError,
+    models::{openai::ToolCall, types::Message},
+};
 
 #[derive(Debug, Serialize, Clone)]
 pub enum Step {
@@ -51,8 +54,6 @@ impl AgentStep {
         }
     }
 }
-
-
 
 impl std::fmt::Display for AgentStep {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

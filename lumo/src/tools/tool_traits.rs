@@ -43,8 +43,8 @@ pub struct ToolInfo {
 /// This struct contains information about the function to call when the tool is used.
 #[derive(Serialize, Debug)]
 pub struct ToolFunctionInfo {
-    pub name: &'static str,
-    pub description: &'static str,
+    pub name: String,
+    pub description: String,
     pub parameters: Value,
 }
 
@@ -59,8 +59,8 @@ impl ToolInfo {
         Self {
             tool_type: ToolType::Function,
             function: ToolFunctionInfo {
-                name: tool.name(),
-                description: tool.description(),
+                name: tool.name().to_string(),
+                description: tool.description().to_string(),
                 parameters: serde_json::to_value(parameters).unwrap(),
             },
         }

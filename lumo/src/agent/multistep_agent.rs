@@ -24,8 +24,8 @@ const DEFAULT_TOOL_DESCRIPTION_TEMPLATE: &str = r#"
 
 pub fn get_tool_description_with_args(tool: &ToolInfo) -> String {
     let mut description = DEFAULT_TOOL_DESCRIPTION_TEMPLATE.to_string();
-    description = description.replace("{{ tool.name }}", tool.function.name);
-    description = description.replace("{{ tool.description }}", tool.function.description);
+    description = description.replace("{{ tool.name }}", tool.function.name.as_str());
+    description = description.replace("{{ tool.description }}", tool.function.description.as_str());
     description = description.replace(
         "{{tool.inputs}}",
         serde_json::to_string(&tool.function.parameters)

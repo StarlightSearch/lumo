@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 
+use opentelemetry::{global, trace::{Span, Tracer}, Context, KeyValue};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
@@ -14,12 +15,12 @@ use super::{
     types::{Message, MessageRole},
 };
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Serialize)]
 pub struct OllamaResponse {
     pub message: AssistantMessage,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Serialize)]
 pub struct AssistantMessage {
     pub role: MessageRole,
     pub content: Option<String>,
@@ -205,6 +206,19 @@ impl Model for OllamaModel {
             }),
             "max_tokens": max_tokens.unwrap_or(self.max_tokens),
         });
+
+        
+        let parent_cx = Context::current();
+        let tracer = global::tracer("lumo");
+        let mut span = tracer.span_builder("OllamaModel::run").with_start_time(std::time::SystemTime::now()).start_with_context(&tracer, &parent_cx);
+        span.set_attributes(vec![
+            KeyValue::new("input.value", serde_json::to_string(&messages).unwrap()),
+            KeyValue::new("llm.model_name", self.model_id.clone()),
+            KeyValue::new("gen_ai.request.temperature", self.temperature.to_string()),
+            KeyValue::new("gen_ai.request.max_tokens", max_tokens.unwrap_or(self.max_tokens).to_string()),
+            KeyValue::new("timestamp", chrono::Utc::now().to_rfc3339()),
+        ]);
+
         if let Some(args) = args {
             for (key, value) in args {
                 body["options"][key] = json!(value);
@@ -213,6 +227,10 @@ impl Model for OllamaModel {
         if self.native_tools {
             body["tools"] = tools;
             body["tool_choice"] = json!("auto");
+            span.set_attribute(KeyValue::new(
+                "gen_ai.request.tool_choice",
+                serde_json::to_string(&body["tool_choice"]).unwrap(),
+            ));
         }
 
         let response = self
@@ -236,6 +254,8 @@ impl Model for OllamaModel {
         let output = response.json::<OllamaResponse>().await.map_err(|e| {
             AgentError::Generation(format!("Failed to parse response from Ollama: {}", e))
         })?;
+        span.set_attribute(KeyValue::new("output.value", serde_json::to_string_pretty(&output).unwrap()));
+        span.end_with_timestamp(std::time::SystemTime::now());
         Ok(Box::new(output))
     }
 }

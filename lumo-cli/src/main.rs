@@ -157,6 +157,10 @@ struct Args {
     /// Logging level
     #[arg(short = 'v', long)]
     logging_level: Option<log::LevelFilter>,
+
+    /// Context length of the model
+    #[arg(short = 'c', long)]
+    ctx_length: Option<usize>,
 }
 
 fn create_tool(tool_type: &ToolType) -> Box<dyn AsyncTool> {
@@ -254,7 +258,7 @@ async fn main() -> Result<()> {
         ModelType::Ollama => ModelWrapper::Ollama(
             OllamaModelBuilder::new()
                 .model_id(&args.model_id)
-                .ctx_length(20000)
+                .ctx_length(args.ctx_length.unwrap_or(20000))
                 .temperature(Some(0.1))
                 .url(args.base_url.as_deref().unwrap_or("http://localhost:11434"))
                 .with_native_tools(true)

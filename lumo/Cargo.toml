@@ -19,7 +19,6 @@ scraper.workspace = true
 terminal_size.workspace = true
 schemars.workspace = true
 chrono.workspace = true
-pdf = "0.8.1"
 rustpython-parser = {workspace= true, optional = true }
 pyo3 = { workspace = true, optional = true }
 regex.workspace = true

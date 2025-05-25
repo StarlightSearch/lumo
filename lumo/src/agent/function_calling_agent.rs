@@ -232,8 +232,8 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                     .map(|agent| ToolInfo {
                         tool_type: ToolType::Function,
                         function: ToolFunctionInfo {
-                            name: agent.name(),
-                            description: agent.description(),
+                            name: agent.name().to_string(),
+                            description: agent.description().to_string(),
                             parameters: json!({
                                 "type": "object",
                                 "properties": {

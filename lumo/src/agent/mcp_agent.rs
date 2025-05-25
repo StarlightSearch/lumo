@@ -49,7 +49,7 @@ where
     base_agent: MultiStepAgent<M>,
     mcp_clients: Vec<McpClient<S>>,
     tools: Vec<Tool>,
-    telemetry: AgentTelemetry,
+    telemetry: AgentTelemetry,  
 }
 
 impl From<Tool> for ToolInfo {
@@ -59,8 +59,8 @@ impl From<Tool> for ToolInfo {
         ToolInfo {
             tool_type: ToolType::Function,
             function: ToolFunctionInfo {
-                name: Box::leak(tool.name.into_boxed_str()),
-                description: Box::leak(tool.description.into_boxed_str()),
+                name: tool.name,
+                description: tool.description,
                 parameters: schema,
             },
         }
@@ -312,8 +312,8 @@ where
                     .map(|agent| ToolInfo {
                         tool_type: ToolType::Function,
                         function: ToolFunctionInfo {
-                            name: agent.name(),
-                            description: agent.description(),
+                            name: agent.name().to_string(),
+                            description: agent.description().to_string(),
                             parameters: json!({
                                 "type": "object",
                                 "properties": {

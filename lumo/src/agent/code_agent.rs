@@ -1,5 +1,6 @@
 use anyhow::Result;
 use async_trait::async_trait;
+use opentelemetry::trace::{FutureExt, TraceContextExt};
 use std::{collections::HashMap, mem::ManuallyDrop};
 use tracing::{instrument, Span};
 
@@ -12,6 +13,7 @@ use crate::{
         types::Message,
     },
     prompts::CODE_SYSTEM_PROMPT,
+    telemetry::AgentTelemetry,
     tools::{AsyncTool, FinalAnswerTool},
 };
 
@@ -24,6 +26,7 @@ use super::agent_trait::AgentStream;
 pub struct CodeAgent<M: Model> {
     base_agent: MultiStepAgent<M>,
     local_python_interpreter: ManuallyDrop<LocalPythonInterpreter>,
+    telemetry: AgentTelemetry,
 }
 
 #[cfg(feature = "code-agent")]
@@ -59,12 +62,12 @@ impl<M: Model + Send + Sync + 'static> CodeAgent<M> {
         let final_answer_tool = FinalAnswerTool::new();
         base_agent.tools.push(Box::new(final_answer_tool));
 
-
         let local_python_interpreter = LocalPythonInterpreter::new(Some(&base_agent.tools), None);
 
         Ok(Self {
             base_agent,
             local_python_interpreter: ManuallyDrop::new(local_python_interpreter),
+            telemetry: AgentTelemetry::new("lumo"),
         })
     }
 }
@@ -151,7 +154,7 @@ impl<'a, M: Model + Send + Sync + 'static> CodeAgentBuilder<'a, M> {
 
 #[cfg(feature = "code-agent")]
 #[async_trait]
-impl<M: Model  + Send + Sync + 'static> Agent for CodeAgent<M> {
+impl<M: Model + Send + Sync + 'static> Agent for CodeAgent<M> {
     fn name(&self) -> &'static str {
         self.base_agent.name()
     }
@@ -208,11 +211,14 @@ impl<M: Model  + Send + Sync + 'static> Agent for CodeAgent<M> {
     async fn step(&mut self, log_entry: &mut Step) -> Result<Option<AgentStep>, AgentError> {
         let step_result = match log_entry {
             Step::ActionStep(step_log) => {
+                let cx = self.telemetry.start_step(self.get_step_number() as i64);
                 let span = Span::current();
                 span.record("step_type", "action");
                 let agent_memory = self.base_agent.write_inner_memory_from_logs(None)?;
                 self.base_agent.input_messages = Some(agent_memory.clone());
-                step_log.agent_memory = Some(agent_memory);
+                step_log.agent_memory = Some(agent_memory.clone());
+                self.telemetry
+                    .log_agent_memory(&serde_json::to_value(&agent_memory).unwrap_or_default());
 
                 let llm_output = self
                     .base_agent
@@ -222,12 +228,12 @@ impl<M: Model  + Send + Sync + 'static> Agent for CodeAgent<M> {
                         self.base_agent.history.clone(),
                         vec![],
                         None,
-                        // None,
                         Some(HashMap::from([(
                             "stop".to_string(),
                             vec!["Observation:".to_string(), "<end_code>".to_string()],
                         )])),
                     )
+                    .with_context(cx.clone())
                     .await?;
 
                 let response = llm_output.get_response()?;
@@ -238,19 +244,23 @@ impl<M: Model  + Send + Sync + 'static> Agent for CodeAgent<M> {
                     Err(e) => {
                         step_log.error = Some(e.clone());
                         tracing::info!("Error: {}", response + "\n" + &e.to_string());
+                        self.telemetry.log_tool_result(&e.to_string(), false, &cx);
                         return Ok(Some(step_log.clone()));
                     }
                 };
 
                 tracing::info!("Code: {}", code);
-                step_log.tool_call = Some(vec![ToolCall {
+                let tool_call = vec![ToolCall {
                     id: Some(format!("call_{}", nanoid::nanoid!())),
                     call_type: Some("function".to_string()),
                     function: FunctionCall {
                         name: "python_interpreter".to_string(),
                         arguments: serde_json::json!({ "code": code }),
                     },
-                }]);
+                }];
+                step_log.tool_call = Some(tool_call.clone());
+                self.telemetry.log_tool_calls(&tool_call, &cx);
+
                 tracing::info!(
                     tool_calls= serde_json::to_string_pretty(&step_log.tool_call.clone().unwrap()).unwrap_or_default(),
                     step = ?self.get_step_number(),
@@ -275,21 +285,35 @@ impl<M: Model  + Send + Sync + 'static> Agent for CodeAgent<M> {
                             observation = observation.to_string();
                         }
                         tracing::info!("Observation: {}", observation);
-
+                        self.telemetry.log_tool_result(&observation, true, &cx);
                         step_log.observations = Some(vec![observation]);
                     }
                     Err(e) => match e {
                         InterpreterError::FinalAnswer(answer) => {
                             step_log.final_answer = Some(answer.clone());
                             step_log.observations = Some(vec![format!("Final answer: {}", answer)]);
+                            self.telemetry.log_final_answer(&answer);
+                            cx.span().set_attribute(opentelemetry::KeyValue::new(
+                                "end_time",
+                                chrono::Utc::now().to_rfc3339(),
+                            ));
+                            cx.span().end_with_timestamp(std::time::SystemTime::now());
                             return Ok(Some(step_log.clone()));
                         }
                         _ => {
                             step_log.error = Some(AgentError::Execution(e.to_string()));
                             tracing::info!("Error: {}", e);
+                            self.telemetry.log_tool_result(&e.to_string(), false, &cx);
                         }
                     },
                 }
+                self.telemetry
+                    .log_observations(&step_log.observations.clone().unwrap_or_default());
+                cx.span().set_attribute(opentelemetry::KeyValue::new(
+                    "end_time",
+                    chrono::Local::now().to_rfc3339(),
+                ));
+                cx.span().end_with_timestamp(std::time::SystemTime::now());
                 step_log
             }
             _ => {
