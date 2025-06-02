@@ -261,11 +261,6 @@ impl<M: Model + Send + Sync + 'static> Agent for CodeAgent<M> {
                 step_log.tool_call = Some(tool_call.clone());
                 self.telemetry.log_tool_calls(&tool_call, &cx);
 
-                tracing::info!(
-                    tool_calls= serde_json::to_string_pretty(&step_log.tool_call.clone().unwrap()).unwrap_or_default(),
-                    step = ?self.get_step_number(),
-                    "Executing tool call:"
-                );
                 let result = self.local_python_interpreter.forward(&code);
                 match result {
                     Ok(result) => {

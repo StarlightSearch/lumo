@@ -2,7 +2,8 @@ FROM lukemathwalker/cargo-chef:latest AS chef
 WORKDIR /app
 RUN apt-get update && apt-get install -y \
     pkg-config \
-    libssl-dev 
+    libssl-dev \
+    python3.11-dev
 
 
 FROM chef AS planner
@@ -15,7 +16,7 @@ COPY --from=planner /app/recipe.json recipe.json
 RUN cargo chef cook --release --recipe-path recipe.json
 # Build application
 COPY . .
-RUN cargo build --release --package lumo-server --no-default-features
+RUN cargo build --release --package lumo-server --features code
 
 # We do not need the Rust toolchain to run the binary!
 FROM debian:bookworm-slim AS runtime
@@ -27,7 +28,8 @@ RUN apt-get update && apt-get install -y \
     libssl-dev \
     ca-certificates \
     openssl \
-    libcurl4-openssl-dev
+    libcurl4-openssl-dev \
+    python3.11-dev
 
 COPY --from=builder /app/target/release/lumo-server /usr/local/bin
 COPY --from=builder /app/lumo-server/src/config/servers.yaml /usr/local/bin/src/config/servers.yaml

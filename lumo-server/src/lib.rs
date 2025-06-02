@@ -5,7 +5,7 @@ use anyhow::Result;
 use base64::{self, Engine};
 use config::Servers;
 use lumo::{
-    agent::{Agent, FunctionCallingAgentBuilder},
+    agent::{Agent, CodeAgentBuilder, FunctionCallingAgentBuilder},
     models::{openai::OpenAIServerModelBuilder, types::Message},
     tools::{exa_search::ExaSearchTool, AsyncTool, DuckDuckGoSearchTool, GoogleSearchTool, VisitWebsiteTool},
 };
@@ -310,7 +310,32 @@ async fn run_task(req: Json<RunTaskRequest>) -> Result<impl Responder, actix_web
                 .with_context(cx.clone())
                 .await
                 .map_err(actix_web::error::ErrorInternalServerError)?
-        }
+        },
+
+        #[cfg(feature = "code")]
+        Some("code-agent") => {
+            let tools = if let Some(tools) = &req.tools {
+                tools
+                    .iter()
+                    .map(|tool| ToolType::from_str(tool).map(|t| create_tool(&t, req.max_results)))
+                    .collect::<Result<Vec<_>, _>>()?
+            } else {
+                vec![]
+            };
+            let mut agent = CodeAgentBuilder::new(model)
+                .with_tools(tools)
+                .with_max_steps(req.max_steps)
+                .with_history(req.history.clone())
+                .with_logging_level(Some(log::LevelFilter::Info))
+                .build()
+                .map_err(actix_web::error::ErrorInternalServerError)?;
+
+            agent
+                .run(&req.task, false)
+                .with_context(cx.clone())
+                .await
+                .map_err(actix_web::error::ErrorInternalServerError)?
+        },
         _ => {
             // Default function calling agent logic...
             let servers = Servers::load().map_err(actix_web::error::ErrorInternalServerError)?;
