@@ -18,17 +18,11 @@ use lumo::tools::{
     VisitWebsiteTool,
 };
 use mcp_client::{
-    ClientCapabilities, ClientInfo, McpClient, McpClientTrait, McpService, StdioTransport,
-    Transport,
+    ClientCapabilities, ClientInfo, McpClient, McpClientTrait, McpService, StdioTransport, Transport, TransportHandle
 };
-use mcp_core::protocol::JsonRpcMessage;
 use opentelemetry::trace::{FutureExt, SpanKind, TraceContextExt, Tracer};
 use opentelemetry::{global, Context, KeyValue};
-use std::collections::HashMap;
-use std::fs::File;
-use std::io;
-use std::time::Duration;
-use tower::Service;
+use std::{collections::HashMap, fs::File, io, time::Duration};
 use tracing::Level;
 use tracing_subscriber::{fmt, EnvFilter};
 mod config;
@@ -71,10 +65,8 @@ enum ModelWrapper {
 
 enum AgentWrapper<
     M: Model + Send + Sync + std::fmt::Debug + 'static,
-    S: Service<JsonRpcMessage, Response = JsonRpcMessage> + Clone + Send + Sync + 'static,
-> where
-    S::Future: Send,
-    S::Error: Into<mcp_client::Error>,
+    S: TransportHandle + Clone + Send + Sync + 'static,
+> 
 {
     FunctionCalling(FunctionCallingAgent<M>),
     Code(CodeAgent<M>),
@@ -83,11 +75,8 @@ enum AgentWrapper<
 
 impl<
         M: Model + Send + Sync + std::fmt::Debug + 'static,
-        S: Service<JsonRpcMessage, Response = JsonRpcMessage> + Clone + Send + Sync + 'static,
+        S: TransportHandle + Clone + Send + Sync + 'static,
     > AgentWrapper<M, S>
-where
-    S::Future: Send,
-    S::Error: Into<mcp_client::Error>,
 {
     fn stream_run<'a>(&'a mut self, task: &'a str, reset: bool) -> StreamResult<'a, Step> {
         match self {
@@ -314,8 +303,7 @@ The current time is {{current_time}}"#,
 
                 // Start the transport
                 let transport_handle = transport.start().await?;
-                let service = McpService::with_timeout(transport_handle, Duration::from_secs(10));
-                let mut client = McpClient::new(service);
+                let mut client = McpClient::connect(transport_handle, Duration::from_secs(30)).await?;
 
                 // Initialize the client with a unique name
                 let _ = client
