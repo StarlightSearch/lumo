@@ -15,7 +15,7 @@ use crate::{
 use anyhow::Result;
 use async_trait::async_trait;
 use futures::future::join_all;
-use mcp_client::{Error, McpClient, McpClientTrait};
+use mcp_client::{Error, McpClient, McpClientTrait, TransportHandle};
 use mcp_core::{protocol::JsonRpcMessage, Content, Tool};
 use opentelemetry::trace::{FutureExt, TraceContextExt};
 use serde_json::json;
@@ -42,7 +42,7 @@ fn initialize_system_prompt(system_prompt: String, tools: Vec<Tool>) -> Result<S
 pub struct McpAgent<M, S>
 where
     M: Model + Send + Sync + 'static,
-    S: Service<JsonRpcMessage, Response = JsonRpcMessage> + Clone + Send + Sync + 'static,
+    S: Service<JsonRpcMessage, Response = JsonRpcMessage> + Clone + Send + Sync + TransportHandle + 'static,
     S::Error: Into<Error>,
     S::Future: Send,
 {
@@ -81,7 +81,7 @@ impl From<ToolInfo> for Tool {
 impl<M, S> McpAgent<M, S>
 where
     M: Model + std::fmt::Debug + Send + Sync,
-    S: Service<JsonRpcMessage, Response = JsonRpcMessage> + Clone + Send + Sync + 'static,
+    S: Service<JsonRpcMessage, Response = JsonRpcMessage> + Clone + Send + Sync + TransportHandle + 'static,
     S::Error: Into<Error>,
     S::Future: Send,
 {
@@ -134,7 +134,7 @@ where
 pub struct McpAgentBuilder<'a, M, S>
 where
     M: Model + std::fmt::Debug + Send + Sync,
-    S: Service<JsonRpcMessage, Response = JsonRpcMessage> + Clone + Send + Sync + 'static,
+    S: Service<JsonRpcMessage, Response = JsonRpcMessage> + Clone + Send + Sync + TransportHandle + 'static,
     S::Error: Into<Error>,
     S::Future: Send,
 {
@@ -153,7 +153,7 @@ where
 impl<'a, M, S> McpAgentBuilder<'a, M, S>
 where
     M: Model + std::fmt::Debug + Send + Sync,
-    S: Service<JsonRpcMessage, Response = JsonRpcMessage> + Clone + Send + Sync + 'static,
+    S: Service<JsonRpcMessage, Response = JsonRpcMessage> + Clone + Send + Sync + TransportHandle + 'static,
     S::Error: Into<Error>,
     S::Future: Send,
 {
@@ -228,7 +228,7 @@ where
 impl<M, S> Agent for McpAgent<M, S>
 where
     M: Model + std::fmt::Debug + Send + Sync,
-    S: Service<JsonRpcMessage, Response = JsonRpcMessage> + Clone + Send + Sync + 'static,
+    S: Service<JsonRpcMessage, Response = JsonRpcMessage> + Clone + Send + Sync + TransportHandle + 'static,
     S::Error: Into<Error>,
     S::Future: Send,
 {
@@ -557,7 +557,7 @@ where
 impl<M, S> AgentStream for McpAgent<M, S>
 where
     M: Model + std::fmt::Debug + Send + Sync,
-    S: Service<JsonRpcMessage, Response = JsonRpcMessage> + Clone + Send + Sync + 'static,
+    S: Service<JsonRpcMessage, Response = JsonRpcMessage> + Clone + Send + Sync + TransportHandle + 'static,
     S::Error: Into<Error>,
     S::Future: Send,
 {
