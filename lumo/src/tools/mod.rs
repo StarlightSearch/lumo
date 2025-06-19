@@ -8,6 +8,7 @@ pub mod google_search;
 pub mod tool_traits;
 pub mod visit_website;
 pub mod exa_search;
+pub mod tavily_search;
 
 #[cfg(feature = "code-agent")]
 pub mod python_interpreter;
@@ -18,6 +19,7 @@ pub use final_answer::*;
 pub use google_search::*;
 pub use tool_traits::*;
 pub use visit_website::*;
+pub use tavily_search::*;
 
 #[cfg(feature = "code-agent")]
 pub use python_interpreter::*;
