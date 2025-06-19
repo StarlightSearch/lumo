@@ -27,9 +27,15 @@ pub enum Topic {
 pub struct TavilySearchToolParams {
     #[schemars(description = "The query to search for")]
     query: String,
-    #[schemars(description = "Optionally restrict results to a certain topic")]
+    #[schemars(
+        description = "Optionally restrict results to a certain topic",
+        default = "default_topic"
+    )]
     topic: Option<Topic>,
-    #[schemars(description = "Optionally restrict results to a certain search depth")]
+    #[schemars(
+        description = "Optionally restrict results to a certain search depth",
+        default = "default_search_depth"
+    )]
     search_depth: Option<SearchDepth>,
     #[schemars(description = "Optionally restrict results to a certain number of results")]
     max_results: Option<String>,
@@ -46,6 +52,8 @@ pub struct TavilySearchToolParams {
     #[schemars(description = "Optionally restrict results to a certain number of results")]
     exclude_domains: Option<Vec<String>>,
 }
+
+
 
 #[derive(Debug, Serialize, Default, Clone)]
 pub struct TavilySearchTool {
@@ -106,4 +114,14 @@ impl Tool for TavilySearchTool {
     async fn forward(&self, arguments: TavilySearchToolParams) -> Result<String> {
         self.forward(arguments).await
     }
+}
+
+
+// Default implementations
+fn default_topic() -> Option<Topic> {
+    Some(Topic::General)
+}
+
+fn default_search_depth() -> Option<SearchDepth> {
+    Some(SearchDepth::Basic)
 }
