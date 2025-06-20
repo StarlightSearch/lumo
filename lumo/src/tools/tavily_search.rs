@@ -79,13 +79,14 @@ pub struct TavilySearchTool {
 
 impl TavilySearchTool {
     pub fn new(api_key: Option<String>) -> Self {
+        let api_key = api_key.unwrap_or(std::env::var("TAVILY_API_KEY").unwrap());
         let tool = BaseTool {
             name: "tavily_search",
-            description: "Tavily Search Tool",
+            description: "Performs a Tavily web search for your query then returns a string of the top search results with LLMs.",
         };
         Self {
             tool,
-            api_key: api_key.unwrap_or_default(),
+            api_key,
         }
     }
 
