@@ -148,8 +148,9 @@ mod tests {
     #[tokio::test]
     async fn test_tavily_search_tool() {
         let tool = TavilySearchTool::new(None);
+        let query = "What is the capital of France?";
         let _result = tool.forward(TavilySearchToolParams {
-            query: "What is lumo?".to_string(),
+            query: query.to_string(),
             topic: None,
             search_depth: None,
             max_results: None,
