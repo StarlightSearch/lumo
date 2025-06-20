@@ -37,20 +37,36 @@ pub struct TavilySearchToolParams {
         default = "default_search_depth"
     )]
     search_depth: Option<SearchDepth>,
-    #[schemars(description = "Optionally restrict results to a certain number of results")]
+    #[schemars(description = "Optionally restrict results to a certain number of results", 
+    default = "default_max_results")]
     max_results: Option<String>,
-    #[schemars(description = "Optionally restrict results to a certain time range")]
-    time_range: Option<String>,
-    #[schemars(description = "Optionally restrict results to a certain number of days")]
-    days: Option<String>,
-    #[schemars(description = "Optionally restrict results to a certain number of results")]
+    #[schemars(description = "Optionally include the answer")]
+    #[serde(default = "default_true")]
     include_answer: Option<bool>,
-    #[schemars(description = "Optionally restrict results to a certain number of results")]
+    
+    #[schemars(description = "Optionally include raw content")]
+    #[serde(default = "default_true")]
+    include_raw_content: Option<bool>,
+    
+    #[schemars(description = "Optionally include images")]
+    #[serde(default = "default_false")]
+    include_images: Option<bool>,
+    
+    #[schemars(description = "Optionally include image descriptions")]
+    #[serde(default = "default_false")]
     include_image_descriptions: Option<bool>,
-    #[schemars(description = "Optionally restrict results to a certain number of results")]
+    
+    #[schemars(description = "Optionally restrict results to a certain number of domains")]
+    #[serde(default = "default_vec_string")]
     include_domains: Option<Vec<String>>,
-    #[schemars(description = "Optionally restrict results to a certain number of results")]
+    
+    #[schemars(description = "Optionally restrict results to a certain number of excluded domains")]
+    #[serde(default = "default_vec_string")]
     exclude_domains: Option<Vec<String>>,
+    
+    #[schemars(description = "Optionally restrict results to a certain country")]
+    #[serde(default = "default_country")]
+    country: Option<String>,
 }
 
 
@@ -118,10 +134,33 @@ impl Tool for TavilySearchTool {
 
 
 // Default implementations
-fn default_topic() -> Option<Topic> {
-    Some(Topic::General)
-}
+fn default_topic() -> Option<Topic> {Some(Topic::General)}
+fn default_search_depth() -> Option<SearchDepth> {Some(SearchDepth::Basic)}
+fn default_max_results() -> Option<String> {Some("10".to_string())}
+fn default_true() -> Option<bool> { Some(true) }
+fn default_false() -> Option<bool> { Some(false) }
+fn default_vec_string() -> Option<Vec<String>> { Some(vec![]) }
+fn default_country() -> Option<String> { None }
 
-fn default_search_depth() -> Option<SearchDepth> {
-    Some(SearchDepth::Basic)
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[tokio::test]
+    async fn test_tavily_search_tool() {
+        let tool = TavilySearchTool::new(None);
+        let _result = tool.forward(TavilySearchToolParams {
+            query: "What is lumo?".to_string(),
+            topic: None,
+            search_depth: None,
+            max_results: None,
+            include_answer: None,
+            include_raw_content: None,
+            include_images: None,
+            include_image_descriptions: None,
+            include_domains: None,
+            exclude_domains: None,
+            country: None,
+        }).await;
+        println!("{:?}", _result);
+    }
 }
