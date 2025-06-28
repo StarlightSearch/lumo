@@ -10,10 +10,11 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use tokio::sync::mpsc::Receiver;
 
 use super::{
     model_traits::{Model, ModelResponse},
-    openai::{FunctionCall, ToolCall},
+    openai::{FunctionCall, ToolCall, OpenAIStreamResponse},
 };
 
 /// Text content within a chat message
@@ -322,6 +323,18 @@ impl Model for GeminiServerModel {
                 response.text().await.unwrap(),
             ))),
         }
+    }
+    
+    #[allow(unused_variables)]
+    async fn run_stream(
+        &self,
+        messages: Vec<Message>,
+        history: Option<Vec<Message>>,
+        tools_to_call_from: Vec<ToolInfo>,
+        max_tokens: Option<usize>,
+        args: Option<HashMap<String, Vec<String>>>,
+    ) -> Result<Receiver<OpenAIStreamResponse>, AgentError> {
+        unimplemented!()
     }
 }
 

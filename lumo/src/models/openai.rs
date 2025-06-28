@@ -6,15 +6,19 @@ use crate::{
         model_traits::{Model, ModelResponse},
         types::{Message, MessageRole},
     },
-    tools::tool_traits::ToolInfo,
+    tools::{tool_traits::ToolInfo, AnyTool, AsyncTool, DuckDuckGoSearchTool},
 };
 use anyhow::Result;
 use async_trait::async_trait;
+use futures::StreamExt;
 use nanoid::nanoid;
 use opentelemetry::{global, trace::{Span, Tracer}, Context, KeyValue};
 use reqwest::Client;
+use reqwest_eventsource::{Event, EventSource, RequestBuilderExt};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use tokio::sync::mpsc::{channel, Receiver, Sender};
+use tokio::sync::broadcast;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct OpenAIResponse {
@@ -34,6 +38,23 @@ pub struct AssistantMessage {
     pub refusal: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct OpenAIStreamResponse {
+    pub choices: Vec<StreamChoice>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct StreamChoice {
+    pub delta: DeltaMessage,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DeltaMessage {
+    pub role: Option<MessageRole>,
+    pub content: Option<String>,
+    pub tool_calls: Option<Vec<ToolCallStream>>,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone,)]
 pub struct ToolCall {
     #[serde(default = "generate_tool_id", deserialize_with = "deserialize_tool_id")]
@@ -41,6 +62,15 @@ pub struct ToolCall {
     #[serde(rename = "type")]
     pub call_type: Option<String>,
     pub function: FunctionCall,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone,)]
+pub struct ToolCallStream {
+    #[serde(default = "generate_tool_id", deserialize_with = "deserialize_tool_id")]
+    pub id: Option<String>,
+    #[serde(rename = "type")]
+    pub call_type: Option<String>,
+    pub function: FunctionCallStream,
 }
 
 fn generate_tool_id() -> Option<String> {
@@ -66,6 +96,16 @@ where
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct FunctionCall {
     pub name: String,
+    #[serde(
+        deserialize_with = "deserialize_arguments",
+        serialize_with = "serialize_arguments"
+    )]
+    pub arguments: Value,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct FunctionCallStream {
+    pub name: Option<String>,
     #[serde(
         deserialize_with = "deserialize_arguments",
         serialize_with = "serialize_arguments"
@@ -239,15 +279,7 @@ impl Model for OpenAIServerModel {
         if let Some(history) = history {
             messages = [history, messages].concat();
         }
-        // let messages = messages
-        //     .iter()
-        //     .map(|message| {
-        //         json!({
-        //             "role": message.role,
-        //             "content": message.content,
-        //         })
-        //     })
-        //     .collect::<Vec<Value>>();
+
         let mut body = json!({
             "model": self.model_id,
             "messages": messages,
@@ -312,11 +344,222 @@ impl Model for OpenAIServerModel {
             ))),
         }
     }
+
+
+ async fn run_stream(&self, messages: Vec<Message>, history: Option<Vec<Message>>, tools_to_call_from: Vec<ToolInfo>, max_tokens: Option<usize>, args: Option<HashMap<String, Vec<String>>>) -> Result<Receiver<OpenAIStreamResponse>, AgentError> {
+    let max_tokens = max_tokens.unwrap_or(4500);
+    let mut messages = messages;
+    if let Some(history) = history {
+        messages = [history, messages].concat();
+    }
+
+    let mut body = json!({
+        "model": self.model_id,
+        "messages": messages,
+        "temperature": self.temperature,
+        "max_tokens": max_tokens,
+        "stream": true,
+    });
+
+    let parent_cx = Context::current();
+    let tracer = global::tracer("lumo");
+    let mut span = tracer.span_builder("OpenAIServerModel::run_stream").with_start_time(std::time::SystemTime::now()).start_with_context(&tracer, &parent_cx);
+    span.set_attributes(vec![
+        KeyValue::new("input.value", serde_json::to_string(&messages).unwrap()),
+        KeyValue::new("llm.model_name", self.model_id.clone()),
+    ]);
+
+    let parent_cx = Context::current();
+    let tracer = global::tracer("lumo");
+    let mut span = tracer.span_builder("OpenAIServerModel::run").with_start_time(std::time::SystemTime::now()).start_with_context(&tracer, &parent_cx);
+    span.set_attributes(vec![
+        KeyValue::new("input.value", serde_json::to_string(&messages).unwrap()),
+        KeyValue::new("llm.model_name", self.model_id.clone()),
+        KeyValue::new("gen_ai.request.temperature", self.temperature.to_string()),
+        KeyValue::new("gen_ai.request.max_tokens", max_tokens.to_string()),
+        KeyValue::new("timestamp", chrono::Utc::now().to_rfc3339()),
+    ]);
+
+    if let Some(args) = &args {
+        for (key, value) in args {
+            if key != "messages" && key != "tools" {
+                span.set_attributes(vec![KeyValue::new(
+                    format!("gen_ai.request.{}", key),
+                    serde_json::to_string(value).unwrap(),
+                ), KeyValue::new("gen_ai.tools", serde_json::to_string(&tools_to_call_from).unwrap()),]);
+            }
+        }
+    }
+
+    if !tools_to_call_from.is_empty() {
+
+        body["tools"] = json!(tools_to_call_from);
+        body["tool_choice"] = json!("required");
+        span.set_attribute(KeyValue::new(
+            "gen_ai.request.tool_choice",
+            serde_json::to_string(&body["tool_choice"]).unwrap(),
+        ));
+    }
+
+    let stream = self
+    .client
+    .post(&self.base_url)
+    .header("Authorization", format!("Bearer {}", self.api_key))
+    .header("Accept", "text/event-stream")
+    .header("Cache-Control", "no-cache")
+    .header("Connection", "keep-alive")
+    .json(&body)
+    .eventsource().map_err(|e| AgentError::Generation(format!("Failed to create event source: {}", e)))?;
+
+let (tx, rx) = channel::<OpenAIStreamResponse>(32);
+tokio::spawn(forward_deserialized_chat_response_stream(stream, tx));
+
+Ok(rx)
+ }
+}
+
+
+async fn forward_deserialized_chat_response_stream(
+    mut stream: EventSource,
+    tx: Sender<OpenAIStreamResponse>,
+) -> anyhow::Result<()> {
+    while let Some(event) = stream.next().await {
+        let event = event?;
+        match event {
+            Event::Message(event) => {
+                println!("Received event: {}", event.data);
+                let data = serde_json::from_str::<OpenAIStreamResponse>(&event.data);
+                match data {
+                    Ok(data) => {
+                        tx.send(data).await?;
+                    }
+                    Err(e) => match event.data.contains("DONE") {
+                        true => {
+                            break;
+                        }
+                        false => {
+                            eprintln!("Failed to deserialize response: {}", e);
+                        }
+                    },
+                }
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// Demonstrates a better pattern for handling both accumulation and UI streaming
+/// 
+/// This pattern uses broadcast channels to efficiently handle multiple consumers
+/// of the same stream data. It's more efficient than the current approach because:
+/// 1. No blocking between accumulation and UI streaming
+/// 2. No unnecessary cloning of content
+/// 3. Better separation of concerns
+/// 4. More scalable for multiple consumers
+pub async fn process_stream_with_broadcast(
+    mut stream: Receiver<OpenAIStreamResponse>,
+) -> Result<(OpenAIResponse, broadcast::Receiver<String>), anyhow::Error> {
+    // Create a broadcast channel for multiple consumers
+    let (tx, rx) = broadcast::channel::<String>(32);
+
+    let mut accumulated = String::new();
+    
+    // Process the original stream and broadcast
+    while let Some(res) = stream.recv().await {
+        if let Some(content) = &res.choices[0].delta.content {
+            if let Err(e) = tx.send(content.clone()) {
+                eprintln!("Failed to broadcast content: {}", e);
+            }
+            accumulated.push_str(&content);
+        }
+        
+        if let Some(tool_calls) = &res.choices[0].delta.tool_calls {
+            for tool_call in tool_calls {
+                let content = &tool_call.function.arguments;
+                // Handle arguments properly without adding extra quotes
+                let content_str = match content {
+                    serde_json::Value::String(s) => s.clone(),
+                    _ => serde_json::to_string(content).unwrap_or_default(),
+                };
+                if let Err(e) = tx.send(content_str.clone()) {
+                    eprintln!("Failed to broadcast tool call content: {}", e);
+                }
+                accumulated.push_str(&content_str);
+            }
+        }
+    }
+    
+    println!("Broadcast task completed");
+    
+    // Close the broadcast channel when stream ends
+    drop(tx);
+    
+    Ok((accumulated, rx))
+}
+
+/// Practical example: Using the broadcast pattern for UI and processing
+pub async fn handle_stream_for_ui_and_processing(
+    model: &OpenAIServerModel,
+    prompt: &str,
+    tools: Vec<ToolInfo>,
+) -> Result<(String, broadcast::Receiver<String>), anyhow::Error> {
+    // Get the stream from the model
+    let stream = model
+        .run_stream(
+            vec![Message::new(MessageRole::User, prompt)],
+            None,
+            tools,
+            None,
+            None,
+        )
+        .await?;
+
+    // Process using broadcast pattern
+    let (accumulated, ui_stream) = process_stream_with_broadcast(stream).await?;
+    
+    Ok((accumulated, ui_stream))
+}
+
+/// Example usage function showing how to handle both UI updates and final processing
+pub async fn example_usage() -> Result<(), anyhow::Error> {
+    let model = OpenAIServerModelBuilder::new("gpt-4o-mini")
+        .with_base_url(Some("https://api.openai.com/v1/chat/completions"))
+        .build()?;
+
+    let prompt = "What are patch embeddings?";
+    let tools = vec![DuckDuckGoSearchTool::new().tool_info()];
+
+    // Get both accumulated result and UI stream
+    let (accumulated, mut ui_stream) = handle_stream_for_ui_and_processing(&model, prompt, tools).await?;
+
+    // Handle UI updates in a separate task
+    let ui_task = tokio::spawn(async move {
+        while let Ok(content) = ui_stream.recv().await {
+            // Update UI with streaming content
+            println!("UI Update: {}", content);
+            // In a real app, you might send this to a WebSocket or UI framework
+        }
+    });
+
+    // Wait for UI task to complete
+    ui_task.await?;
+
+    // Use the accumulated content for further processing
+    println!("Final accumulated content: {}", accumulated);
+    
+    // You can now use `accumulated` for:
+    // - Saving to database
+    // - Further analysis
+    // - API responses
+    // - etc.
+
+    Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::{models::types::MessageBuilder, prompts::CODE_SYSTEM_PROMPT};
+    use crate::{models::types::MessageBuilder, prompts::CODE_SYSTEM_PROMPT, tools::{AnyTool, DuckDuckGoSearchTool}};
 
     use super::*;
 
@@ -344,18 +587,21 @@ mod tests {
             .with_base_url(Some("https://api.openai.com/v1/chat/completions"))
             .build()
             .unwrap();
+
+            let prompt = "What are patch embeddings?";
+            let tool = DuckDuckGoSearchTool::new().tool_info();
         let response = model
             .run(
-                create_tool_response_message_from_tool_call(),
+                vec![Message::new(MessageRole::User, prompt)],
                 None,
-                vec![],
+                vec![tool],
                 None,
                 None,
             )
             .await
             .unwrap();
-        let response = response.get_response().unwrap();
-        println!("{}", response);
+        let response = response.get_tools_used().unwrap();
+        println!("{:?}", response);
     }
 
     #[tokio::test]
@@ -379,5 +625,81 @@ mod tests {
             .unwrap();
         let response = response.get_response().unwrap();
         println!("{}", response);
+    }
+
+    #[tokio::test]
+    async fn test_openai_stream() -> Result<()> {
+        let model = OpenAIServerModelBuilder::new("gpt-4o-mini")
+            .with_base_url(Some("https://api.openai.com/v1/chat/completions"))
+            .build()
+            .unwrap();
+
+        let prompt = "What are patch embeddings?";
+        let tool = DuckDuckGoSearchTool::new().tool_info();
+
+        let mut stream = model
+            .run_stream(
+                vec![Message::new(MessageRole::User, prompt)],
+                None,
+                vec![tool],
+                None,
+                None,
+            )
+            .await?;
+
+        println!("Starting stream test...");
+        let mut accumulated_message = String::new();
+        let (tx, _rx) = channel::<String>(32);
+        while let Some(res) = stream.recv().await {
+            let choice = &res.choices[0];
+
+            if let Some(content) = &choice.delta.content {
+                println!("Received content chunk: {:?}", content);
+                accumulated_message.push_str(&content);
+                tx.send(content.clone()).await?;
+            }
+        }
+        println!("\nFinal message: {}", accumulated_message);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_broadcast_pattern() -> Result<()> {
+        let model = OpenAIServerModelBuilder::new("gpt-4o-mini")
+            .with_base_url(Some("https://api.openai.com/v1/chat/completions"))
+            .build()
+            .unwrap();
+
+        let prompt = "What are patch embeddings?";
+        let tool = DuckDuckGoSearchTool::new().tool_info();
+
+        let stream = model
+            .run_stream(
+                vec![Message::new(MessageRole::User, prompt)],
+                None,
+                vec![tool],
+                None,
+                None,
+            )
+            .await?;
+
+        println!("Starting broadcast pattern test...");
+        
+        // Use the broadcast pattern
+        let (accumulated, mut ui_stream) = process_stream_with_broadcast(stream).await?;
+        
+        // Process UI stream
+        let mut ui_content = String::new();
+        while let Ok(content) = ui_stream.recv().await {
+            println!("UI received: {:?}", content);
+            ui_content.push_str(&content);
+        }
+        
+        println!("Accumulated: {}", accumulated);
+        println!("UI content: {}", ui_content);
+        
+        // Both should be identical
+        assert_eq!(accumulated, ui_content);
+        Ok(())
     }
 }

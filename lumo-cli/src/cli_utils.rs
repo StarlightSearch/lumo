@@ -126,17 +126,6 @@ impl CliPrinter {
     pub fn print_step(step: &Step) -> Result<String> {
         match step {
             Step::ActionStep(action_step) => {
-                // println!("\n{} {}", "📍 Step:".bright_cyan().bold(), action_step.step);
-                // if let Some(tool_call) = &action_step.tool_call {
-                //     if !tool_call.is_empty() {
-                //         if tool_call[0].function.name != "python_interpreter" {
-                //             Self::print_regular_tool_call(tool_call);
-                //         } else {
-                //             Self::print_python_tool_call(tool_call);
-                //         }
-                //     }
-                // }
-
                 if let Some(error) = &action_step.error {
                     println!("{} {}", "❌ Error:".bright_red().bold(), error);
                 }

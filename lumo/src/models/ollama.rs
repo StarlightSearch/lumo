@@ -3,8 +3,9 @@ use std::collections::HashMap;
 use opentelemetry::{global, trace::{Span, Tracer}, Context, KeyValue};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use tokio::sync::mpsc::Receiver;
 
-use crate::{errors::AgentError, tools::ToolInfo};
+use crate::{errors::AgentError, models::openai::OpenAIStreamResponse, tools::ToolInfo};
 use anyhow::Result;
 use async_trait::async_trait;
 use reqwest::Client;
@@ -257,5 +258,17 @@ impl Model for OllamaModel {
         span.set_attribute(KeyValue::new("output.value", serde_json::to_string_pretty(&output).unwrap()));
         span.end_with_timestamp(std::time::SystemTime::now());
         Ok(Box::new(output))
+    }
+
+    #[allow(unused_variables)]
+    async fn run_stream(
+        &self,
+        messages: Vec<Message>,
+        history: Option<Vec<Message>>,
+        tools_to_call_from: Vec<ToolInfo>,
+        max_tokens: Option<usize>,
+        args: Option<HashMap<String, Vec<String>>>,
+    ) -> Result<Receiver<OpenAIStreamResponse>, AgentError> {
+        unimplemented!()
     }
 }

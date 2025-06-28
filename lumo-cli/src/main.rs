@@ -10,7 +10,7 @@ use lumo::agent::{McpAgent, Step};
 use lumo::errors::AgentError;
 use lumo::models::model_traits::{Model, ModelResponse};
 use lumo::models::ollama::{OllamaModel, OllamaModelBuilder};
-use lumo::models::openai::{OpenAIServerModel, OpenAIServerModelBuilder};
+use lumo::models::openai::{OpenAIServerModel, OpenAIServerModelBuilder, OpenAIStreamResponse};
 use lumo::models::types::Message;
 use lumo::tools::exa_search::ExaSearchTool;
 use lumo::tools::{
@@ -18,10 +18,11 @@ use lumo::tools::{
     VisitWebsiteTool,
 };
 use mcp_client::{
-    ClientCapabilities, ClientInfo, McpClient, McpClientTrait, McpService, StdioTransport, Transport, TransportHandle
+    ClientCapabilities, ClientInfo, McpClient, McpClientTrait, StdioTransport, Transport, TransportHandle
 };
 use opentelemetry::trace::{FutureExt, SpanKind, TraceContextExt, Tracer};
 use opentelemetry::{global, Context, KeyValue};
+use tokio::sync::mpsc::Receiver;
 use std::{collections::HashMap, fs::File, io, time::Duration};
 use tracing::Level;
 use tracing_subscriber::{fmt, EnvFilter};
@@ -103,6 +104,24 @@ impl Model for ModelWrapper {
             }
             ModelWrapper::Ollama(m) => {
                 Ok(m.run(messages, history, tools, max_tokens, args).await?)
+            }
+        }
+    }
+
+    async fn run_stream(
+        &self,
+        messages: Vec<Message>,
+        history: Option<Vec<Message>>,
+        tools: Vec<ToolInfo>,
+        max_tokens: Option<usize>,
+        args: Option<HashMap<String, Vec<String>>>,
+    ) -> Result<Receiver<OpenAIStreamResponse>, AgentError> {
+        match self {
+            ModelWrapper::OpenAI(m) => {
+                Ok(m.run_stream(messages, history, tools, max_tokens, args).await?)
+            }
+            ModelWrapper::Ollama(m) => {
+                Ok(m.run_stream(messages, history, tools, max_tokens, args).await?)
             }
         }
     }

@@ -10,12 +10,13 @@ use lumo::agent::{Agent, CodeAgent, FunctionCallingAgent};
 use lumo::errors::AgentError;
 use lumo::models::model_traits::{Model, ModelResponse};
 use lumo::models::ollama::{OllamaModel, OllamaModelBuilder};
-use lumo::models::openai::{OpenAIServerModel, OpenAIServerModelBuilder};
+use lumo::models::openai::{OpenAIServerModel, OpenAIServerModelBuilder, OpenAIStreamResponse};
 use lumo::models::types::Message;
 use lumo::tools::{
     AsyncTool, DuckDuckGoSearchTool, GoogleSearchTool, PythonInterpreterTool, ToolInfo,
     VisitWebsiteTool,
 };
+use tokio::sync::mpsc::Receiver;
 use std::fs::File;
 
 #[derive(Debug, Clone, ValueEnum)]
@@ -81,6 +82,17 @@ impl Model for ModelWrapper {
             ModelWrapper::Ollama(m) => Ok(m.run(messages, history, tools, max_tokens, args).await?),
             ModelWrapper::Gemini(m) => Ok(m.run(messages, history, tools, max_tokens, args).await?),
         }
+    }
+    #[allow(unused_variables)]
+    async fn run_stream(
+        &self,
+        messages: Vec<Message>,
+        history: Option<Vec<Message>>,
+        tools: Vec<ToolInfo>,
+        max_tokens: Option<usize>,
+        args: Option<HashMap<String, Vec<String>>>,
+    ) -> Result<Receiver<OpenAIStreamResponse>, AgentError> {
+        unimplemented!()
     }
 }
 
