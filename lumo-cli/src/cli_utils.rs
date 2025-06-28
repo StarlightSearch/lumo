@@ -236,13 +236,13 @@ impl CliPrinter {
     }
 
     fn print_final_answer(answer: &str) -> Result<()> {
-        println!("\n{}", "✨ Final Answer:".bright_blue().bold());
-        PrettyPrinter::new()
-            .input(bat::Input::from_bytes(answer.as_bytes()))
-            .language("Markdown")
-            .wrapping_mode(bat::WrappingMode::Character)
-            .print()?;
-        println!("\n");
+        // println!("\n{}", "✨ Final Answer:".bright_blue().bold());
+        // PrettyPrinter::new()
+        //     .input(bat::Input::from_bytes(answer.as_bytes()))
+        //     .language("Markdown")
+        //     .wrapping_mode(bat::WrappingMode::Character)
+        //     .print()?;
+        // println!("\n");
         Ok(())
     }
 }

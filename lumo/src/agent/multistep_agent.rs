@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use crate::errors::AgentError;
 use crate::logger::LOGGER;
 use crate::models::model_traits::Model;
+use crate::models::openai::Status;
 use crate::models::types::{Message, MessageRole};
 use crate::prompts::{
     user_prompt_plan, SYSTEM_PROMPT_FACTS, SYSTEM_PROMPT_PLAN, TOOL_CALLING_SYSTEM_PROMPT,
@@ -12,6 +13,7 @@ use anyhow::Result;
 use async_trait::async_trait;
 use colored::Colorize;
 use log::info;
+use tokio::sync::broadcast;
 
 use super::agent_step::Step;
 use super::agent_trait::Agent;
@@ -162,7 +164,7 @@ where
     /// Perform one step in the ReAct framework: the agent thinks, acts, and observes the result.
     ///
     /// Returns None if the step is not final.
-    async fn step(&mut self, _: &mut Step) -> Result<Option<AgentStep>, AgentError> {
+    async fn step(&mut self, _: &mut Step, _: Option<broadcast::Sender<Status>>) -> Result<Option<AgentStep>, AgentError> {
         todo!()
     }
 }
@@ -175,7 +177,7 @@ where
     pub fn new(
         name: Option<&str>,
         model: M,
-        mut tools: Vec<Box<dyn AsyncTool>>,
+        tools: Vec<Box<dyn AsyncTool>>,
         system_prompt: Option<&str>,
         managed_agents: Vec<Box<dyn Agent>>,
         description: Option<&str>,
@@ -203,8 +205,8 @@ where
             None => "A multi-step agent that can solve tasks using a series of tools".to_string(),
         };
 
-        let final_answer_tool = FinalAnswerTool::new();
-        tools.push(Box::new(final_answer_tool));
+        // let final_answer_tool = FinalAnswerTool::new();
+        // tools.push(Box::new(final_answer_tool));
 
 
         let mut agent = MultiStepAgent {

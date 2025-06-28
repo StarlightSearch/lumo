@@ -2,12 +2,12 @@ use std::collections::HashMap;
 
 use crate::{
     errors::AgentError,
-    models::{openai::{OpenAIStreamResponse, ToolCall}, types::Message},
+    models::{openai::{OpenAIStreamResponse, Status, ToolCall}, types::Message},
     tools::tool_traits::ToolInfo,
 };
 use anyhow::Result;
 use async_trait::async_trait;
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::{broadcast, mpsc::Receiver};
 
 pub trait ModelResponse: Send + Sync {
     fn get_response(&self) -> Result<String, AgentError>;
@@ -32,5 +32,6 @@ pub trait Model: Send + Sync + 'static {
         tools: Vec<ToolInfo>,
         max_tokens: Option<usize>,
         args: Option<HashMap<String, Vec<String>>>,
-    ) -> Result<Receiver<OpenAIStreamResponse>, AgentError>;
+        tx: broadcast::Sender<Status>,
+    ) -> Result<Box<dyn ModelResponse>, AgentError>;
 }

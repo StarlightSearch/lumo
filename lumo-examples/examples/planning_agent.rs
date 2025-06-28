@@ -20,7 +20,7 @@ async fn main() {
         .build()
         .unwrap();
     // let _result = agent.run("What are the best restaurants in Eindhoven?", true).await.unwrap();
-    let mut result = agent.stream_run("What are the best restaurants in Eindhoven?", true).unwrap();
+    let mut result = agent.stream_run("What are the best restaurants in Eindhoven?", true, None).unwrap();
 
     while let Some(step) = result.next().await {
         match step {

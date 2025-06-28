@@ -3,13 +3,13 @@ use crate::{
     agent::agent_step::AgentStep,
     errors::AgentError,
     models::{
-        model_traits::Model,
-        types::{Message, MessageRole},
+        model_traits::Model, openai::Status, types::{Message, MessageRole}
     },
 };
 use anyhow::Result;
 use async_trait::async_trait;
 use log::info;
+use tokio::sync::broadcast;
 
 #[cfg(feature = "stream")]
 use {futures::Stream, std::pin::Pin};
@@ -39,11 +39,11 @@ pub trait Agent: Send + Sync {
     ) -> Result<Option<Step>>;
     fn description(&self) -> &'static str;
     fn model(&self) -> &dyn Model;
-    async fn step(&mut self, log_entry: &mut Step) -> Result<Option<AgentStep>, AgentError>;
+    async fn step(&mut self, log_entry: &mut Step, tx: Option<broadcast::Sender<Status>>) -> Result<Option<AgentStep>, AgentError>;
 
-    async fn direct_run(&mut self, task: &str) -> Result<String, AgentError> {
+    async fn direct_run(&mut self, task: &str, tx: Option<broadcast::Sender<Status>>) -> Result<String, AgentError> {
         let mut final_answer: Option<String> = None;
-        while final_answer.is_none() && self.get_step_number() < self.get_max_steps() {
+        while final_answer.is_none() && self.get_step_number() <= self.get_max_steps() {
             let mut step_log = Step::ActionStep(AgentStep::new(self.get_step_number(), Some(task.to_string())));
 
             if let Some(planning_interval) = self.get_planning_interval() {
@@ -53,16 +53,17 @@ pub trait Agent: Send + Sync {
                         .unwrap();
                 }
             }
+            
 
-            if let Some(step) = self.step(&mut step_log).await? {
+            if let Some(step) = self.step(&mut step_log, None).await? {
                 final_answer = step.final_answer;
             }
             self.get_logs_mut().push(step_log);
             self.increment_step_number();
         }
 
-        if final_answer.is_none() && self.get_step_number() >= self.get_max_steps() {
-            final_answer = self.provide_final_answer(task).await?;
+        if final_answer.is_none() && self.get_step_number() > self.get_max_steps() {
+            final_answer = self.provide_final_answer(task, None).await?;
         }
         info!(
             "Final answer: {}",
@@ -92,10 +93,10 @@ pub trait Agent: Send + Sync {
         self.set_task(task);
         self.set_step_number(1);
 
-        self.direct_run(task).await
+        self.direct_run(task, None).await
     }
 
-    async fn provide_final_answer(&mut self, task: &str) -> Result<Option<String>, AgentError> {
+    async fn provide_final_answer(&mut self, task: &str, tx: Option<broadcast::Sender<Status>>) -> Result<Option<String>, AgentError> {
         let mut input_messages = vec![Message {
             role: MessageRole::User,
             content: "An agent tried to answer a user query but it got stuck and failed to do so. You are tasked with providing an answer instead. Here is the agent's memory:".to_string(),
@@ -110,11 +111,19 @@ pub trait Agent: Send + Sync {
             tool_call_id: None,
             tool_calls: None,
         });
-        let response = self
-            .model()
-            .run(input_messages, None, vec![], None, None)
-            .await?
-            .get_response()?;
+        
+        let response = match tx {
+            None => self
+                .model()
+                .run(input_messages, None, vec![], None, None)
+                .await?
+                .get_response()?,
+            Some(tx) => self
+                .model()
+                .run_stream(input_messages, None, vec![], None, None, tx)
+                .await?
+                .get_response()?,
+        };
         Ok(Some(response))
     }
 
@@ -246,7 +255,7 @@ pub trait Agent: Send + Sync {
 
 #[cfg(feature = "stream")]
 pub trait AgentStream: Agent {
-    fn stream_run<'a>(&'a mut self, task: &'a str, reset: bool) -> StreamResult<'a, Step> {
+    fn stream_run<'a>(&'a mut self, task: &'a str, reset: bool, tx: Option<broadcast::Sender<Status>>) -> StreamResult<'a, Step> {
         let system_prompt_step = Step::SystemPromptStep(self.get_system_prompt().to_string());
         if reset {
             self.get_logs_mut().clear();
@@ -266,7 +275,7 @@ pub trait AgentStream: Agent {
         let mut final_answer: Option<String> = None;
 
         let stream = async_stream::stream! {
-            while final_answer.is_none() && self.get_step_number() < self.get_max_steps() {
+            while final_answer.is_none() && self.get_step_number() <= self.get_max_steps() {
                 let mut step_log = Step::ActionStep(AgentStep::new(self.get_step_number(), Some(task.to_string())));
 
                 if let Some(planning_interval) = self.get_planning_interval() {
@@ -282,7 +291,7 @@ pub trait AgentStream: Agent {
                     }
                 }
 
-                match self.step(&mut step_log).await {
+                match self.step(&mut step_log, tx.clone()).await {
                     Ok(Some(step)) => {
                         self.get_logs_mut().push(step_log.clone());
                         self.increment_step_number();
@@ -299,8 +308,8 @@ pub trait AgentStream: Agent {
                 }
             }
 
-            if final_answer.is_none() && self.get_step_number() >= self.get_max_steps() {
-                match self.provide_final_answer(task).await {
+            if final_answer.is_none() && self.get_step_number() > self.get_max_steps() {
+                match self.provide_final_answer(task, tx.clone()).await {
                     Ok(Some(answer)) => {
                         yield Ok(Step::ActionStep(AgentStep {
                             final_answer: Some(answer),

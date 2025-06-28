@@ -1,16 +1,20 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use clap::{Parser, ValueEnum};
+use colored::Colorize;
+
 use futures::StreamExt;
 use lumo::agent::{
-    AgentStream, CodeAgent, CodeAgentBuilder, FunctionCallingAgent, FunctionCallingAgentBuilder,
-    McpAgentBuilder, StreamResult,
+    AgentStream, CodeAgent, CodeAgentBuilder, FunctionCallingAgent,
+    FunctionCallingAgentBuilder, McpAgentBuilder, StreamResult,
 };
 use lumo::agent::{McpAgent, Step};
 use lumo::errors::AgentError;
 use lumo::models::model_traits::{Model, ModelResponse};
 use lumo::models::ollama::{OllamaModel, OllamaModelBuilder};
-use lumo::models::openai::{OpenAIServerModel, OpenAIServerModelBuilder, OpenAIStreamResponse};
+use lumo::models::openai::{
+    OpenAIServerModel, OpenAIServerModelBuilder, Status,
+};
 use lumo::models::types::Message;
 use lumo::tools::exa_search::ExaSearchTool;
 use lumo::tools::{
@@ -18,12 +22,15 @@ use lumo::tools::{
     VisitWebsiteTool,
 };
 use mcp_client::{
-    ClientCapabilities, ClientInfo, McpClient, McpClientTrait, StdioTransport, Transport, TransportHandle
+    ClientCapabilities, ClientInfo, McpClient, McpClientTrait, StdioTransport, Transport,
+    TransportHandle,
 };
 use opentelemetry::trace::{FutureExt, SpanKind, TraceContextExt, Tracer};
 use opentelemetry::{global, Context, KeyValue};
-use tokio::sync::mpsc::Receiver;
+use std::io::Write;
 use std::{collections::HashMap, fs::File, io, time::Duration};
+use tokio::sync::broadcast;
+use tokio::sync::mpsc::Receiver;
 use tracing::Level;
 use tracing_subscriber::{fmt, EnvFilter};
 mod config;
@@ -67,8 +74,7 @@ enum ModelWrapper {
 enum AgentWrapper<
     M: Model + Send + Sync + std::fmt::Debug + 'static,
     S: TransportHandle + Clone + Send + Sync + 'static,
-> 
-{
+> {
     FunctionCalling(FunctionCallingAgent<M>),
     Code(CodeAgent<M>),
     Mcp(McpAgent<M, S>),
@@ -79,11 +85,16 @@ impl<
         S: TransportHandle + Clone + Send + Sync + 'static,
     > AgentWrapper<M, S>
 {
-    fn stream_run<'a>(&'a mut self, task: &'a str, reset: bool) -> StreamResult<'a, Step> {
+    fn stream_run<'a>(
+        &'a mut self,
+        task: &'a str,
+        reset: bool,
+        tx: Option<broadcast::Sender<Status>>,
+    ) -> StreamResult<'a, Step> {
         match self {
-            AgentWrapper::FunctionCalling(agent) => agent.stream_run(task, reset),
-            AgentWrapper::Code(agent) => agent.stream_run(task, reset),
-            AgentWrapper::Mcp(agent) => agent.stream_run(task, reset),
+            AgentWrapper::FunctionCalling(agent) => agent.stream_run(task, reset, tx),
+            AgentWrapper::Code(agent) => agent.stream_run(task, reset, tx),
+            AgentWrapper::Mcp(agent) => agent.stream_run(task, reset, tx),
         }
     }
 }
@@ -115,14 +126,15 @@ impl Model for ModelWrapper {
         tools: Vec<ToolInfo>,
         max_tokens: Option<usize>,
         args: Option<HashMap<String, Vec<String>>>,
-    ) -> Result<Receiver<OpenAIStreamResponse>, AgentError> {
+        tx: broadcast::Sender<Status>,
+    ) -> Result<Box<dyn ModelResponse>, AgentError> {
         match self {
-            ModelWrapper::OpenAI(m) => {
-                Ok(m.run_stream(messages, history, tools, max_tokens, args).await?)
-            }
-            ModelWrapper::Ollama(m) => {
-                Ok(m.run_stream(messages, history, tools, max_tokens, args).await?)
-            }
+            ModelWrapper::OpenAI(m) => Ok(m
+                .run_stream(messages, history, tools, max_tokens, args, tx)
+                .await?),
+            ModelWrapper::Ollama(m) => Ok(m
+                .run_stream(messages, history, tools, max_tokens, args, tx)
+                .await?),
         }
     }
 }
@@ -322,7 +334,8 @@ The current time is {{current_time}}"#,
 
                 // Start the transport
                 let transport_handle = transport.start().await?;
-                let mut client = McpClient::connect(transport_handle, Duration::from_secs(30)).await?;
+                let mut client =
+                    McpClient::connect(transport_handle, Duration::from_secs(30)).await?;
 
                 // Initialize the client with a unique name
                 let _ = client
@@ -389,7 +402,31 @@ The current time is {{current_time}}"#,
             None
         };
 
-        let mut result = agent.stream_run(&task, false)?;
+        let (tx, rx) = broadcast::channel::<Status>(100);
+
+        // Spawn a separate task to handle streaming content printing
+        let content_printing_task = tokio::spawn(async move {
+            let mut rx = rx;
+            while let Ok(status) = rx.recv().await {
+                match status {
+                    Status::FirstContent(content) => {
+                        println!("\n{}", "✨ Final Answer:".bright_blue().bold());
+                        print!("{}", content);
+                    }
+                    Status::Content(content) => {
+                        print!("{}", content);
+                    }
+                    _ => {}
+                }
+                std::io::stdout().flush().unwrap_or(());
+                tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+            }
+            println!();
+        });
+
+        let mut result = agent.stream_run(&task, false, Some(tx.clone()))?;
+
+        // Process the stream and collect results (CLI prints)
         let mut final_answer = String::new();
         while let Some(step) = if let Some(context) = &cx2 {
             result.next().with_context(context.clone()).await
@@ -404,8 +441,17 @@ The current time is {{current_time}}"#,
                 println!("Error: {:?}", step);
             }
         }
+
+        // Close the broadcast channel to signal UI task completion
+        drop(tx);
+
+        // Wait for the content printing task to complete
+        let _ = content_printing_task.await;
+
         if let Some(context) = &cx2 {
-            context.span().set_attribute(KeyValue::new("output.value", final_answer));
+            context
+                .span()
+                .set_attribute(KeyValue::new("output.value", final_answer));
             context.span().end();
         }
         task_count += 1;

@@ -10,12 +10,13 @@ use lumo::agent::{Agent, CodeAgent, FunctionCallingAgent};
 use lumo::errors::AgentError;
 use lumo::models::model_traits::{Model, ModelResponse};
 use lumo::models::ollama::{OllamaModel, OllamaModelBuilder};
-use lumo::models::openai::{OpenAIServerModel, OpenAIServerModelBuilder, OpenAIStreamResponse};
+use lumo::models::openai::{OpenAIServerModel, OpenAIServerModelBuilder, OpenAIStreamResponse, Status};
 use lumo::models::types::Message;
 use lumo::tools::{
     AsyncTool, DuckDuckGoSearchTool, GoogleSearchTool, PythonInterpreterTool, ToolInfo,
     VisitWebsiteTool,
 };
+use tokio::sync::broadcast;
 use tokio::sync::mpsc::Receiver;
 use std::fs::File;
 
@@ -91,7 +92,8 @@ impl Model for ModelWrapper {
         tools: Vec<ToolInfo>,
         max_tokens: Option<usize>,
         args: Option<HashMap<String, Vec<String>>>,
-    ) -> Result<Receiver<OpenAIStreamResponse>, AgentError> {
+        tx: broadcast::Sender<Status>,
+    ) -> Result<Box<dyn ModelResponse>, AgentError> {
         unimplemented!()
     }
 }

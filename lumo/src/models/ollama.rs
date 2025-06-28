@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use opentelemetry::{global, trace::{Span, Tracer}, Context, KeyValue};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use tokio::sync::mpsc::Receiver;
+use tokio::sync::{broadcast, mpsc::Receiver};
 
-use crate::{errors::AgentError, models::openai::OpenAIStreamResponse, tools::ToolInfo};
+use crate::{errors::AgentError, models::openai::{OpenAIStreamResponse, Status}, tools::ToolInfo};
 use anyhow::Result;
 use async_trait::async_trait;
 use reqwest::Client;
@@ -268,7 +268,8 @@ impl Model for OllamaModel {
         tools_to_call_from: Vec<ToolInfo>,
         max_tokens: Option<usize>,
         args: Option<HashMap<String, Vec<String>>>,
-    ) -> Result<Receiver<OpenAIStreamResponse>, AgentError> {
+        tx: broadcast::Sender<Status>,
+    ) -> Result<Box<dyn ModelResponse>, AgentError> {
         unimplemented!()
     }
 }
