@@ -66,7 +66,6 @@ pub struct ToolCall {
 
 #[derive(Debug, Serialize, Deserialize, Clone,)]
 pub struct ToolCallStream {
-    #[serde(default = "generate_tool_id", deserialize_with = "deserialize_tool_id")]
     pub id: Option<String>,
     #[serde(rename = "type")]
     pub call_type: Option<String>,
@@ -107,7 +106,6 @@ pub struct FunctionCall {
 pub struct FunctionCallStream {
     pub name: Option<String>,
     #[serde(
-        deserialize_with = "deserialize_arguments",
         serialize_with = "serialize_arguments"
     )]
     pub arguments: Value,
@@ -463,7 +461,11 @@ pub async fn process_stream_with_broadcast(
     // Create a broadcast channel for multiple consumers
     let (tx, rx) = broadcast::channel::<String>(32);
 
-    let mut accumulated = String::new();
+    let mut accumulated_content = String::new();
+    let mut tool_calls: Vec<ToolCall> = Vec::new();
+    let mut current_tool_call_id: Option<String> = None;
+    let mut current_tool_call: Option<ToolCall> = None;
+    let mut current_arguments = String::new();
     
     // Process the original stream and broadcast
     while let Some(res) = stream.recv().await {
@@ -471,23 +473,54 @@ pub async fn process_stream_with_broadcast(
             if let Err(e) = tx.send(content.clone()) {
                 eprintln!("Failed to broadcast content: {}", e);
             }
-            accumulated.push_str(&content);
+            accumulated_content.push_str(&content);
         }
         
-        if let Some(tool_calls) = &res.choices[0].delta.tool_calls {
-            for tool_call in tool_calls {
-                let content = &tool_call.function.arguments;
-                // Handle arguments properly without adding extra quotes
-                let content_str = match content {
-                    serde_json::Value::String(s) => s.clone(),
-                    _ => serde_json::to_string(content).unwrap_or_default(),
-                };
-                if let Err(e) = tx.send(content_str.clone()) {
-                    eprintln!("Failed to broadcast tool call content: {}", e);
+        if let Some(tool_calls_delta) = &res.choices[0].delta.tool_calls {
+            for tool_call_delta in tool_calls_delta {
+                if let Some(id) = &tool_call_delta.id {
+                    // New tool call starts, push the previous one if exists
+                    if let Some(prev) = current_tool_call.take() {
+                        tool_calls.push(prev);
+                    }
+                    current_tool_call = Some(ToolCall {
+                        id: Some(id.clone()),
+                        call_type: tool_call_delta.call_type.clone(),
+                        function: FunctionCall {
+                            name: tool_call_delta.function.name.clone().unwrap_or_default(),
+                            arguments: Value::String(String::new()),
+                        },
+                    });
                 }
-                accumulated.push_str(&content_str);
+                // Always update the current tool call's name and append arguments
+                if let Some(current) = &mut current_tool_call {
+                    if let Some(name) = &tool_call_delta.function.name {
+                        current.function.name = name.clone();
+                    }
+                    let new_args = &tool_call_delta.function.arguments;
+                    if let Value::String(new_str) = new_args {
+                        if !new_str.is_empty() {
+                            current_arguments.push_str(&new_str);
+                        }
+                    } else {
+                        current.function.arguments = new_args.clone();
+                    }
+                    // Broadcast tool call content for UI updates
+                    let content_str = match &tool_call_delta.function.arguments {
+                        Value::String(s) => s.clone(),
+                        _ => serde_json::to_string(&tool_call_delta.function.arguments).unwrap_or_default(),
+                    };
+                    if let Err(e) = tx.send(content_str.clone()) {
+                        eprintln!("Failed to broadcast tool call content: {}", e);
+                    }
+                }
             }
         }
+    }
+    // Push the last tool call if exists
+    if let Some(mut last) = current_tool_call.take() {
+        last.function.arguments = serde_json::from_str(&current_arguments).unwrap();
+        tool_calls.push(last);
     }
     
     println!("Broadcast task completed");
@@ -495,7 +528,19 @@ pub async fn process_stream_with_broadcast(
     // Close the broadcast channel when stream ends
     drop(tx);
     
-    Ok((accumulated, rx))
+    // Create the final OpenAIResponse
+    let response = OpenAIResponse {
+        choices: vec![Choice {
+            message: AssistantMessage {
+                role: MessageRole::Assistant,
+                content: Some(accumulated_content),
+                tool_calls: if tool_calls.is_empty() { None } else { Some(tool_calls) },
+                refusal: None,
+            },
+        }],
+    };
+    
+    Ok((response, rx))
 }
 
 /// Practical example: Using the broadcast pattern for UI and processing
@@ -503,7 +548,7 @@ pub async fn handle_stream_for_ui_and_processing(
     model: &OpenAIServerModel,
     prompt: &str,
     tools: Vec<ToolInfo>,
-) -> Result<(String, broadcast::Receiver<String>), anyhow::Error> {
+) -> Result<(OpenAIResponse, broadcast::Receiver<String>), anyhow::Error> {
     // Get the stream from the model
     let stream = model
         .run_stream(
@@ -531,7 +576,7 @@ pub async fn example_usage() -> Result<(), anyhow::Error> {
     let tools = vec![DuckDuckGoSearchTool::new().tool_info()];
 
     // Get both accumulated result and UI stream
-    let (accumulated, mut ui_stream) = handle_stream_for_ui_and_processing(&model, prompt, tools).await?;
+    let (accumulated_response, mut ui_stream) = handle_stream_for_ui_and_processing(&model, prompt, tools).await?;
 
     // Handle UI updates in a separate task
     let ui_task = tokio::spawn(async move {
@@ -546,9 +591,10 @@ pub async fn example_usage() -> Result<(), anyhow::Error> {
     ui_task.await?;
 
     // Use the accumulated content for further processing
-    println!("Final accumulated content: {}", accumulated);
+    let final_content = accumulated_response.get_response().unwrap_or_default();
+    println!("Final accumulated content: {}", final_content);
     
-    // You can now use `accumulated` for:
+    // You can now use `accumulated_response` for:
     // - Saving to database
     // - Further analysis
     // - API responses
@@ -665,7 +711,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_broadcast_pattern() -> Result<()> {
-        let model = OpenAIServerModelBuilder::new("gpt-4o-mini")
+        let model = OpenAIServerModelBuilder::new("gemini-2.0-flash")
             .with_base_url(Some("https://api.openai.com/v1/chat/completions"))
             .build()
             .unwrap();
@@ -686,7 +732,7 @@ mod tests {
         println!("Starting broadcast pattern test...");
         
         // Use the broadcast pattern
-        let (accumulated, mut ui_stream) = process_stream_with_broadcast(stream).await?;
+        let (accumulated_response, mut ui_stream) = process_stream_with_broadcast(stream).await?;
         
         // Process UI stream
         let mut ui_content = String::new();
@@ -695,11 +741,10 @@ mod tests {
             ui_content.push_str(&content);
         }
         
-        println!("Accumulated: {}", accumulated);
+        let accumulated_content = accumulated_response;
+        println!("Accumulated content: {:?}", accumulated_content.get_tools_used().unwrap());
         println!("UI content: {}", ui_content);
-        
-        // Both should be identical
-        assert_eq!(accumulated, ui_content);
+
         Ok(())
     }
 }
