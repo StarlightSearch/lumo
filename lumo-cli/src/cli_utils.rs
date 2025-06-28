@@ -32,9 +32,8 @@ where
         impl Visit for ToolCallsVisitor {
             fn record_debug(&mut self, _: &tracing::field::Field, _: &dyn std::fmt::Debug) {}
             fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
-                
                 if field.name() == "tool_calls" {
-                    self.0 = Some(serde_json::from_str::<Vec<ToolCall>>(&value).unwrap_or_default());
+                    self.0 = Some(serde_json::from_str::<Vec<ToolCall>>(value).unwrap_or_default());
                 }
             }
             fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
@@ -47,10 +46,9 @@ where
         let mut visitor = ToolCallsVisitor(None, None);
         event.record(&mut visitor);
 
-
         if let Some(step) = visitor.1 {
             println!("\n{} {}", "📍 Step:".bright_cyan().bold(), step);
-        } 
+        }
 
         if let Some(tool_calls) = visitor.0 {
             if !tool_calls.is_empty() {
@@ -236,13 +234,13 @@ impl CliPrinter {
     }
 
     fn print_final_answer(answer: &str) -> Result<()> {
-        // println!("\n{}", "✨ Final Answer:".bright_blue().bold());
-        // PrettyPrinter::new()
-        //     .input(bat::Input::from_bytes(answer.as_bytes()))
-        //     .language("Markdown")
-        //     .wrapping_mode(bat::WrappingMode::Character)
-        //     .print()?;
-        // println!("\n");
+        println!("\n{}", "✨ Final Answer:".bright_blue().bold());
+        PrettyPrinter::new()
+            .input(bat::Input::from_bytes(answer.as_bytes()))
+            .language("Markdown")
+            .wrapping_mode(bat::WrappingMode::Character)
+            .print()?;
+        println!("\n");
         Ok(())
     }
 }

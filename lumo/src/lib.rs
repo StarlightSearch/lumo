@@ -42,6 +42,8 @@
 
 //! ```
 
+pub mod agent;
+pub mod errors;
 #[cfg(feature = "code-agent")]
 pub mod local_python_interpreter;
 pub(crate) mod logger;
@@ -49,5 +51,3 @@ pub mod models;
 pub mod prompts;
 pub mod telemetry;
 pub mod tools;
-pub mod agent;
-pub mod errors;

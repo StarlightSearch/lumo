@@ -81,11 +81,11 @@ impl ExaSearchTool {
         });
 
         let response = client
-        .post("https://api.exa.ai/search")
-        .headers(headers)
-        .json(&body)
-        .send()
-        .await?;
+            .post("https://api.exa.ai/search")
+            .headers(headers)
+            .json(&body)
+            .send()
+            .await?;
 
         let response = response.json::<ExaSearchResponse>().await?;
         Ok(response)
@@ -132,7 +132,14 @@ mod tests {
     async fn test_exa_search_tool() {
         let tool = ExaSearchTool::new(2, None);
         let query = "What is the capital of France?";
-        let result = Tool::forward(&tool, ExaSearchToolParams { query: query.to_string() }).await.unwrap();
+        let result = Tool::forward(
+            &tool,
+            ExaSearchToolParams {
+                query: query.to_string(),
+            },
+        )
+        .await
+        .unwrap();
         println!("{}", result);
         assert!(result.contains("Paris"));
     }

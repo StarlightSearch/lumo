@@ -6,19 +6,23 @@ use crate::{
         model_traits::{Model, ModelResponse},
         types::{Message, MessageRole},
     },
-    tools::{tool_traits::ToolInfo},
+    tools::tool_traits::ToolInfo,
 };
 use anyhow::Result;
 use async_trait::async_trait;
 use futures::StreamExt;
 use nanoid::nanoid;
-use opentelemetry::{global, trace::{Span, Tracer}, Context, KeyValue};
+use opentelemetry::{
+    global,
+    trace::{Span, Tracer},
+    Context, KeyValue,
+};
 use reqwest::Client;
 use reqwest_eventsource::{Event, EventSource, RequestBuilderExt};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tokio::sync::mpsc::{channel, Receiver, Sender};
 use tokio::sync::broadcast;
+use tokio::sync::mpsc::{channel, Receiver, Sender};
 
 #[derive(Clone)]
 pub enum Status {
@@ -28,7 +32,6 @@ pub enum Status {
     ToolCallContent(String),
     Error(String),
 }
-
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct OpenAIResponse {
@@ -65,7 +68,7 @@ pub struct DeltaMessage {
     pub tool_calls: Option<Vec<ToolCallStream>>,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone,)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ToolCall {
     #[serde(default = "generate_tool_id", deserialize_with = "deserialize_tool_id")]
     pub id: Option<String>,
@@ -74,7 +77,7 @@ pub struct ToolCall {
     pub function: FunctionCall,
 }
 
-#[derive(Debug, Serialize, Deserialize, Clone,)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ToolCallStream {
     pub id: Option<String>,
     #[serde(rename = "type")]
@@ -115,9 +118,7 @@ pub struct FunctionCall {
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct FunctionCallStream {
     pub name: Option<String>,
-    #[serde(
-        serialize_with = "serialize_arguments"
-    )]
+    #[serde(serialize_with = "serialize_arguments")]
     pub arguments: Value,
 }
 
@@ -297,7 +298,10 @@ impl Model for OpenAIServerModel {
 
         let parent_cx = Context::current();
         let tracer = global::tracer("lumo");
-        let mut span = tracer.span_builder("OpenAIServerModel::run").with_start_time(std::time::SystemTime::now()).start_with_context(&tracer, &parent_cx);
+        let mut span = tracer
+            .span_builder("OpenAIServerModel::run")
+            .with_start_time(std::time::SystemTime::now())
+            .start_with_context(&tracer, &parent_cx);
         span.set_attributes(vec![
             KeyValue::new("input.value", serde_json::to_string(&messages).unwrap()),
             KeyValue::new("llm.model_name", self.model_id.clone()),
@@ -309,16 +313,21 @@ impl Model for OpenAIServerModel {
         if let Some(args) = &args {
             for (key, value) in args {
                 if key != "messages" && key != "tools" {
-                    span.set_attributes(vec![KeyValue::new(
-                        format!("gen_ai.request.{}", key),
-                        serde_json::to_string(value).unwrap(),
-                    ), KeyValue::new("gen_ai.tools", serde_json::to_string(&tools_to_call_from).unwrap()),]);
+                    span.set_attributes(vec![
+                        KeyValue::new(
+                            format!("gen_ai.request.{}", key),
+                            serde_json::to_string(value).unwrap(),
+                        ),
+                        KeyValue::new(
+                            "gen_ai.tools",
+                            serde_json::to_string(&tools_to_call_from).unwrap(),
+                        ),
+                    ]);
                 }
             }
         }
 
         if !tools_to_call_from.is_empty() {
-  
             body["tools"] = json!(tools_to_call_from);
             body["tool_choice"] = json!("required");
             span.set_attribute(KeyValue::new(
@@ -326,7 +335,7 @@ impl Model for OpenAIServerModel {
                 serde_json::to_string(&body["tool_choice"]).unwrap(),
             ));
         }
-        
+
         let response = self
             .client
             .post(&self.base_url)
@@ -341,7 +350,10 @@ impl Model for OpenAIServerModel {
         match response.status() {
             reqwest::StatusCode::OK => {
                 let response = response.json::<OpenAIResponse>().await.unwrap();
-                span.set_attribute(KeyValue::new("output.value", serde_json::to_string_pretty(&response).unwrap()));
+                span.set_attribute(KeyValue::new(
+                    "output.value",
+                    serde_json::to_string_pretty(&response).unwrap(),
+                ));
                 span.end_with_timestamp(std::time::SystemTime::now());
                 Ok(Box::new(response))
             }
@@ -353,84 +365,102 @@ impl Model for OpenAIServerModel {
         }
     }
 
-
- async fn run_stream(&self, messages: Vec<Message>, 
-    history: Option<Vec<Message>>, tools_to_call_from: Vec<ToolInfo>, 
-    max_tokens: Option<usize>, 
-    args: Option<HashMap<String, Vec<String>>>,
-    tx: broadcast::Sender<Status>,
+    async fn run_stream(
+        &self,
+        messages: Vec<Message>,
+        history: Option<Vec<Message>>,
+        tools_to_call_from: Vec<ToolInfo>,
+        max_tokens: Option<usize>,
+        args: Option<HashMap<String, Vec<String>>>,
+        tx: broadcast::Sender<Status>,
     ) -> Result<Box<dyn ModelResponse>, AgentError> {
-    let max_tokens = max_tokens.unwrap_or(4500);
-    let mut messages = messages;
-    if let Some(history) = history {
-        messages = [history, messages].concat();
-    }
+        let max_tokens = max_tokens.unwrap_or(4500);
+        let mut messages = messages;
+        if let Some(history) = history {
+            messages = [history, messages].concat();
+        }
 
-    let mut body = json!({
-        "model": self.model_id,
-        "messages": messages,
-        "temperature": self.temperature,
-        "max_tokens": max_tokens,
-        "stream": true,
-    });
+        let mut body = json!({
+            "model": self.model_id,
+            "messages": messages,
+            "temperature": self.temperature,
+            "max_tokens": max_tokens,
+            "stream": true,
+        });
 
-    let parent_cx = Context::current();
-    let tracer = global::tracer("lumo");
-    let mut span = tracer.span_builder("OpenAIServerModel::run_stream").with_start_time(std::time::SystemTime::now()).start_with_context(&tracer, &parent_cx);
-    span.set_attributes(vec![
-        KeyValue::new("input.value", serde_json::to_string(&messages).unwrap()),
-        KeyValue::new("llm.model_name", self.model_id.clone()),
-    ]);
+        let parent_cx = Context::current();
+        let tracer = global::tracer("lumo");
+        let mut span = tracer
+            .span_builder("OpenAIServerModel::run_stream")
+            .with_start_time(std::time::SystemTime::now())
+            .start_with_context(&tracer, &parent_cx);
+        span.set_attributes(vec![
+            KeyValue::new("input.value", serde_json::to_string(&messages).unwrap()),
+            KeyValue::new("llm.model_name", self.model_id.clone()),
+        ]);
 
-    let parent_cx = Context::current();
-    let tracer = global::tracer("lumo");
-    let mut span = tracer.span_builder("OpenAIServerModel::run").with_start_time(std::time::SystemTime::now()).start_with_context(&tracer, &parent_cx);
-    span.set_attributes(vec![
-        KeyValue::new("input.value", serde_json::to_string(&messages).unwrap()),
-        KeyValue::new("llm.model_name", self.model_id.clone()),
-        KeyValue::new("gen_ai.request.temperature", self.temperature.to_string()),
-        KeyValue::new("gen_ai.request.max_tokens", max_tokens.to_string()),
-        KeyValue::new("timestamp", chrono::Utc::now().to_rfc3339()),
-    ]);
+        let parent_cx = Context::current();
+        let tracer = global::tracer("lumo");
+        let mut span = tracer
+            .span_builder("OpenAIServerModel::run")
+            .with_start_time(std::time::SystemTime::now())
+            .start_with_context(&tracer, &parent_cx);
+        span.set_attributes(vec![
+            KeyValue::new("input.value", serde_json::to_string(&messages).unwrap()),
+            KeyValue::new("llm.model_name", self.model_id.clone()),
+            KeyValue::new("gen_ai.request.temperature", self.temperature.to_string()),
+            KeyValue::new("gen_ai.request.max_tokens", max_tokens.to_string()),
+            KeyValue::new("timestamp", chrono::Utc::now().to_rfc3339()),
+        ]);
 
-    if let Some(args) = &args {
-        for (key, value) in args {
-            if key != "messages" && key != "tools" {
-                span.set_attributes(vec![KeyValue::new(
-                    format!("gen_ai.request.{}", key),
-                    serde_json::to_string(value).unwrap(),
-                ), KeyValue::new("gen_ai.tools", serde_json::to_string(&tools_to_call_from).unwrap()),]);
+        if let Some(args) = &args {
+            for (key, value) in args {
+                if key != "messages" && key != "tools" {
+                    span.set_attributes(vec![
+                        KeyValue::new(
+                            format!("gen_ai.request.{}", key),
+                            serde_json::to_string(value).unwrap(),
+                        ),
+                        KeyValue::new(
+                            "gen_ai.tools",
+                            serde_json::to_string(&tools_to_call_from).unwrap(),
+                        ),
+                    ]);
+                }
             }
         }
-    }
 
-    if !tools_to_call_from.is_empty() {
+        if !tools_to_call_from.is_empty() {
+            body["tools"] = json!(tools_to_call_from);
+            body["tool_choice"] = json!("required");
+            span.set_attribute(KeyValue::new(
+                "gen_ai.request.tool_choice",
+                serde_json::to_string(&body["tool_choice"]).unwrap(),
+            ));
+        }
 
-        body["tools"] = json!(tools_to_call_from);
-        body["tool_choice"] = json!("required");
-        span.set_attribute(KeyValue::new(
-            "gen_ai.request.tool_choice",
-            serde_json::to_string(&body["tool_choice"]).unwrap(),
+        let stream = self
+            .client
+            .post(&self.base_url)
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .header("Accept", "text/event-stream")
+            .header("Cache-Control", "no-cache")
+            .header("Connection", "keep-alive")
+            .json(&body)
+            .eventsource()
+            .map_err(|e| AgentError::Generation(format!("Failed to create event source: {}", e)))?;
+
+        let (tx_provider, rx_provider) = channel::<OpenAIStreamResponse>(32);
+        tokio::spawn(forward_deserialized_chat_response_stream(
+            stream,
+            tx_provider,
         ));
+        let response = process_stream_with_separate_tasks(rx_provider, tx)
+            .await
+            .map_err(|e| AgentError::Generation(format!("Failed to process stream: {}", e)))?;
+        Ok(response)
     }
-
-    let stream = self
-    .client
-    .post(&self.base_url)
-    .header("Authorization", format!("Bearer {}", self.api_key))
-    .header("Accept", "text/event-stream")
-    .header("Cache-Control", "no-cache")
-    .header("Connection", "keep-alive")
-    .json(&body)
-    .eventsource().map_err(|e| AgentError::Generation(format!("Failed to create event source: {}", e)))?;
-
-let (tx_provider, rx_provider) = channel::<OpenAIStreamResponse>(32);
-tokio::spawn(forward_deserialized_chat_response_stream(stream, tx_provider));
-let response = process_stream_with_separate_tasks(rx_provider, tx).await.map_err(|e| AgentError::Generation(format!("Failed to process stream: {}", e)))?;
-Ok(response)
- }
 }
-
 
 async fn forward_deserialized_chat_response_stream(
     mut stream: EventSource,
@@ -438,31 +468,28 @@ async fn forward_deserialized_chat_response_stream(
 ) -> anyhow::Result<()> {
     while let Some(event) = stream.next().await {
         let event = event?;
-        match event {
-            Event::Message(event) => {
-                let data = serde_json::from_str::<OpenAIStreamResponse>(&event.data);
-                match data {
-                    Ok(data) => {
-                        tx.send(data).await?;
-                    }
-                    Err(e) => match event.data.contains("DONE") {
-                        true => {
-                            break;
-                        }
-                        false => {
-                            eprintln!("Failed to deserialize response: {}", e);
-                        }
-                    },
+        if let Event::Message(event) = event {
+            let data = serde_json::from_str::<OpenAIStreamResponse>(&event.data);
+            match data {
+                Ok(data) => {
+                    tx.send(data).await?;
                 }
+                Err(e) => match event.data.contains("DONE") {
+                    true => {
+                        break;
+                    }
+                    false => {
+                        eprintln!("Failed to deserialize response: {}", e);
+                    }
+                },
             }
-            _ => {}
         }
     }
     Ok(())
 }
 
 /// Demonstrates a better pattern for handling both accumulation and UI streaming
-/// 
+///
 /// This pattern uses broadcast channels to efficiently handle multiple consumers
 /// of the same stream data. It's more efficient than the current approach because:
 /// 1. No blocking between accumulation and UI streaming
@@ -473,30 +500,31 @@ pub async fn process_stream_with_broadcast(
     mut stream: Receiver<OpenAIStreamResponse>,
     tx: broadcast::Sender<String>,
 ) -> Result<Box<dyn ModelResponse>, anyhow::Error> {
-
     let mut accumulated_content = String::new();
     let mut tool_calls: Vec<ToolCall> = Vec::new();
     let mut current_tool_call: Option<ToolCall> = None;
     let mut current_arguments = String::new();
-    
+
     // Process the original stream and broadcast
     while let Some(res) = stream.recv().await {
         if let Some(content) = &res.choices[0].delta.content {
             if let Err(e) = tx.send(content.clone()) {
                 eprintln!("Failed to broadcast content: {}", e);
             }
-            accumulated_content.push_str(&content);
+            accumulated_content.push_str(content);
         }
-        
+
         if let Some(tool_calls_delta) = &res.choices[0].delta.tool_calls {
             for tool_call_delta in tool_calls_delta {
                 if let Some(id) = &tool_call_delta.id {
                     // New tool call starts, push the previous one if exists
-                    if let Err(e) = tx.send(format!("Tool call started: {}", tool_call_delta.function.name.clone().unwrap_or_default())) {
+                    if let Err(e) = tx.send(format!(
+                        "Tool call started: {}",
+                        tool_call_delta.function.name.clone().unwrap_or_default()
+                    )) {
                         eprintln!("Failed to broadcast tool call content: {}", e);
                     }
                     if let Some(mut prev) = current_tool_call.take() {
-          
                         prev.function.arguments = serde_json::from_str(&current_arguments).unwrap();
                         tool_calls.push(prev);
                         current_arguments = String::new();
@@ -518,7 +546,7 @@ pub async fn process_stream_with_broadcast(
                     let new_args = &tool_call_delta.function.arguments;
                     if let Value::String(new_str) = new_args {
                         if !new_str.is_empty() {
-                            current_arguments.push_str(&new_str);
+                            current_arguments.push_str(new_str);
                         }
                     } else {
                         current.function.arguments = new_args.clone();
@@ -526,7 +554,8 @@ pub async fn process_stream_with_broadcast(
                     // Broadcast tool call content for UI updates
                     let content_str = match &tool_call_delta.function.arguments {
                         Value::String(s) => s.clone(),
-                        _ => serde_json::to_string(&tool_call_delta.function.arguments).unwrap_or_default(),
+                        _ => serde_json::to_string(&tool_call_delta.function.arguments)
+                            .unwrap_or_default(),
                     };
                     if let Err(e) = tx.send(content_str.clone()) {
                         eprintln!("Failed to broadcast tool call content: {}", e);
@@ -540,29 +569,33 @@ pub async fn process_stream_with_broadcast(
         last.function.arguments = serde_json::from_str(&current_arguments).unwrap();
         tool_calls.push(last);
     }
-    
+
     println!("Broadcast task completed");
-    
+
     // Close the broadcast channel when stream ends
     drop(tx);
-    
+
     // Create the final OpenAIResponse
     let response = Box::new(OpenAIResponse {
         choices: vec![Choice {
             message: AssistantMessage {
                 role: MessageRole::Assistant,
                 content: Some(accumulated_content),
-                tool_calls: if tool_calls.is_empty() { None } else { Some(tool_calls) },
+                tool_calls: if tool_calls.is_empty() {
+                    None
+                } else {
+                    Some(tool_calls)
+                },
                 refusal: None,
             },
         }],
     });
-    
+
     Ok(response)
 }
 
 /// Alternative pattern that separates accumulation and broadcasting into different tasks
-/// 
+///
 /// This pattern provides better error isolation and ensures that broadcasting
 /// never blocks accumulation processing. Useful when you need:
 /// 1. Heavy accumulation processing
@@ -573,32 +606,32 @@ pub async fn process_stream_with_separate_tasks(
     mut stream: Receiver<OpenAIStreamResponse>,
     tx: broadcast::Sender<Status>,
 ) -> Result<Box<dyn ModelResponse>, anyhow::Error> {
-    
     // Channel for communication between tasks
     let (accumulation_tx, mut accumulation_rx) = channel::<OpenAIStreamResponse>(32);
 
     let mut first_content = true;
-    
+
     // Spawn accumulation task
     let accumulation_handle = tokio::spawn(async move {
         let mut accumulated_content = String::new();
         let mut tool_calls: Vec<ToolCall> = Vec::new();
         let mut current_tool_call: Option<ToolCall> = None;
         let mut current_arguments = String::new();
-        
+
         while let Some(res) = accumulation_rx.recv().await {
             // Process content
             if let Some(content) = &res.choices[0].delta.content {
-                accumulated_content.push_str(&content);
+                accumulated_content.push_str(content);
             }
-            
+
             // Process tool calls
             if let Some(tool_calls_delta) = &res.choices[0].delta.tool_calls {
                 for tool_call_delta in tool_calls_delta {
                     if let Some(id) = &tool_call_delta.id {
                         // New tool call starts, push the previous one if exists
                         if let Some(mut prev) = current_tool_call.take() {
-                            prev.function.arguments = serde_json::from_str(&current_arguments).unwrap();
+                            prev.function.arguments =
+                                serde_json::from_str(&current_arguments).unwrap();
                             tool_calls.push(prev);
                             current_arguments = String::new();
                         }
@@ -611,7 +644,7 @@ pub async fn process_stream_with_separate_tasks(
                             },
                         });
                     }
-                    
+
                     // Update current tool call
                     if let Some(current) = &mut current_tool_call {
                         if let Some(name) = &tool_call_delta.function.name {
@@ -620,7 +653,7 @@ pub async fn process_stream_with_separate_tasks(
                         let new_args = &tool_call_delta.function.arguments;
                         if let Value::String(new_str) = new_args {
                             if !new_str.is_empty() {
-                                current_arguments.push_str(&new_str);
+                                current_arguments.push_str(new_str);
                             }
                         } else {
                             current.function.arguments = new_args.clone();
@@ -634,11 +667,11 @@ pub async fn process_stream_with_separate_tasks(
             last.function.arguments = serde_json::from_str(&current_arguments).unwrap();
             tool_calls.push(last);
         }
-        
+
         // Return accumulated data
         (accumulated_content, tool_calls)
     });
-    
+
     // Spawn broadcasting task
     let tx_clone = tx.clone();
     let broadcast_handle = tokio::spawn(async move {
@@ -648,7 +681,7 @@ pub async fn process_stream_with_separate_tasks(
                 eprintln!("Failed to send to accumulation task: {}", e);
                 break;
             }
-            
+
             // Broadcast content immediately
             if let Some(content) = &res.choices[0].delta.content {
                 if first_content {
@@ -656,13 +689,11 @@ pub async fn process_stream_with_separate_tasks(
                         eprintln!("Failed to broadcast first content: {}", e);
                     }
                     first_content = false;
-                } else {
-                    if let Err(e) = tx_clone.send(Status::Content(content.clone())) {
-                        eprintln!("Failed to broadcast content: {}", e);
-                    }
+                } else if let Err(e) = tx_clone.send(Status::Content(content.clone())) {
+                    eprintln!("Failed to broadcast content: {}", e);
                 }
             }
-            
+
             // Broadcast tool call information
             // if let Some(tool_calls_delta) = &res.choices[0].delta.tool_calls {
             //     for tool_call_delta in tool_calls_delta {
@@ -671,7 +702,7 @@ pub async fn process_stream_with_separate_tasks(
             //                 eprintln!("Failed to broadcast tool call start: {}", e);
             //             }
             //         }
-                    
+
             //         // Broadcast tool call content
             //         let content_str = match &tool_call_delta.function.arguments {
             //             Value::String(s) => s.clone(),
@@ -683,45 +714,50 @@ pub async fn process_stream_with_separate_tasks(
             //     }
             // }
         }
-        
+
         // Close the accumulation channel
         drop(accumulation_tx);
     });
-    
+
     // Wait for both tasks to complete
-    let (accumulation_result, broadcast_result) = tokio::join!(accumulation_handle, broadcast_handle);
-    
+    let (accumulation_result, broadcast_result) =
+        tokio::join!(accumulation_handle, broadcast_handle);
+
     // Handle any errors from the tasks
-    let (accumulated_content, tool_calls) = accumulation_result.map_err(|e| {
-        anyhow::anyhow!("Accumulation task failed: {}", e)
-    })?;
-    
-    broadcast_result.map_err(|e| {
-        anyhow::anyhow!("Broadcast task failed: {}", e)
-    })?;
-    
+    let (accumulated_content, tool_calls) =
+        accumulation_result.map_err(|e| anyhow::anyhow!("Accumulation task failed: {}", e))?;
+
+    broadcast_result.map_err(|e| anyhow::anyhow!("Broadcast task failed: {}", e))?;
+
     // Close the broadcast channel when stream ends
     drop(tx);
-    
+
     // Create the final OpenAIResponse
     let response = Box::new(OpenAIResponse {
         choices: vec![Choice {
             message: AssistantMessage {
                 role: MessageRole::Assistant,
                 content: Some(accumulated_content),
-                tool_calls: if tool_calls.is_empty() { None } else { Some(tool_calls) },
+                tool_calls: if tool_calls.is_empty() {
+                    None
+                } else {
+                    Some(tool_calls)
+                },
                 refusal: None,
             },
         }],
     });
-    
+
     Ok(response)
 }
 
-
 #[cfg(test)]
 mod tests {
-    use crate::{models::types::MessageBuilder, prompts::CODE_SYSTEM_PROMPT, tools::{AnyTool, DuckDuckGoSearchTool}};
+    use crate::{
+        models::types::MessageBuilder,
+        prompts::CODE_SYSTEM_PROMPT,
+        tools::{AnyTool, DuckDuckGoSearchTool},
+    };
 
     use super::*;
 
@@ -737,7 +773,6 @@ mod tests {
                   },
                   "id": "call_RrkJwA8V1BbYJNLvZH37e",
                   "type": "function"
-                    
             })).unwrap()]).build(),
             MessageBuilder::new(MessageRole::ToolResponse, "This is a tool response").with_tool_call_id("call_RrkJwA8V1BbYJNLvZH37e").build(),
         ]
@@ -750,8 +785,8 @@ mod tests {
             .build()
             .unwrap();
 
-            let prompt = "What are patch embeddings?";
-            let tool = DuckDuckGoSearchTool::new().tool_info();
+        let prompt = "What are patch embeddings?";
+        let tool = DuckDuckGoSearchTool::new().tool_info();
         let response = model
             .run(
                 vec![Message::new(MessageRole::User, prompt)],
@@ -811,7 +846,6 @@ mod tests {
             )
             .await?;
 
-     
         println!("\nFinal message: {}", stream.get_response().unwrap());
         Ok(())
     }
@@ -839,7 +873,7 @@ mod tests {
             .await?;
 
         println!("Starting broadcast pattern test...");
-     
+
         // Process UI stream
         let mut ui_content = String::new();
         while let Ok(status) = rx.recv().await {
@@ -863,9 +897,12 @@ mod tests {
                 }
             }
         }
-        
+
         let accumulated_content = accumulated_response;
-        println!("Accumulated content: {:?}", accumulated_content.get_tools_used().unwrap());
+        println!(
+            "Accumulated content: {:?}",
+            accumulated_content.get_tools_used().unwrap()
+        );
         println!("UI content: {}", ui_content);
 
         Ok(())
@@ -875,7 +912,7 @@ mod tests {
     async fn test_separate_tasks_pattern() -> Result<()> {
         // This test demonstrates how you could use the separate tasks pattern
         // if you needed more complex processing or error isolation
-        
+
         let model = OpenAIServerModelBuilder::new("gpt-4.1-mini")
             .with_base_url(Some("https://api.openai.com/v1/chat/completions"))
             .build()
@@ -885,15 +922,14 @@ mod tests {
         let tool = DuckDuckGoSearchTool::new().tool_info();
 
         let (tx, mut rx) = broadcast::channel::<Status>(32);
-        
+
         // Create a mock stream for testing the separate tasks pattern
         let (mock_tx, mock_rx) = channel::<OpenAIStreamResponse>(32);
-        
+
         // Spawn a task to simulate the stream processing with separate tasks
-        let separate_tasks_handle = tokio::spawn(async move {
-            process_stream_with_separate_tasks(mock_rx, tx).await
-        });
-        
+        let separate_tasks_handle =
+            tokio::spawn(async move { process_stream_with_separate_tasks(mock_rx, tx).await });
+
         // Simulate some stream data
         tokio::spawn(async move {
             // This would normally come from the actual model stream
@@ -907,15 +943,15 @@ mod tests {
                     },
                 }],
             };
-            
+
             if let Err(e) = mock_tx.send(mock_response).await {
                 eprintln!("Failed to send mock response: {}", e);
             }
-            
+
             // Close the channel to end the stream
             drop(mock_tx);
         });
-        
+
         // Process the broadcast stream
         let mut ui_content = String::new();
         while let Ok(status) = rx.recv().await {
@@ -940,10 +976,13 @@ mod tests {
             }
             println!("Separate tasks UI content: {}", ui_content);
         }
-        
+
         // Get the final accumulated response
         let accumulated_response = separate_tasks_handle.await??;
-        println!("Separate tasks accumulated content: {}", accumulated_response.get_response().unwrap());
+        println!(
+            "Separate tasks accumulated content: {}",
+            accumulated_response.get_response().unwrap()
+        );
 
         Ok(())
     }

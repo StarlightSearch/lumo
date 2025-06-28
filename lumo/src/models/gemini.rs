@@ -2,7 +2,10 @@ use std::collections::HashMap;
 
 use crate::{
     errors::AgentError,
-    models::{openai::Status, types::{Message, MessageRole}},
+    models::{
+        openai::Status,
+        types::{Message, MessageRole},
+    },
     tools::ToolInfo,
 };
 use anyhow::Result;
@@ -10,11 +13,11 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
-use tokio::sync::{broadcast, mpsc::Receiver};
+use tokio::sync::broadcast;
 
 use super::{
     model_traits::{Model, ModelResponse},
-    openai::{FunctionCall, ToolCall, OpenAIStreamResponse},
+    openai::{FunctionCall, ToolCall},
 };
 
 /// Text content within a chat message
@@ -324,7 +327,7 @@ impl Model for GeminiServerModel {
             ))),
         }
     }
-    
+
     #[allow(unused_variables)]
     async fn run_stream(
         &self,

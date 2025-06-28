@@ -1,5 +1,5 @@
+pub mod gemini;
 pub mod model_traits;
 pub mod ollama;
 pub mod openai;
 pub mod types;
-pub mod gemini;

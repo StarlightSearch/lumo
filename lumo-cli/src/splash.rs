@@ -62,8 +62,6 @@ $$$$$$$$\\$$$$$$  |$$ | \_/ $$ | $$$$$$  |
             println!("  ├─ {}", server.bright_white());
         }
 
-
-
         println!("{}", "━".repeat(60).bright_blue());
         println!(); // Empty line for spacing
     }

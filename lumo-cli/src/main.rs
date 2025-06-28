@@ -1,20 +1,17 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use clap::{Parser, ValueEnum};
-use colored::Colorize;
 
 use futures::StreamExt;
 use lumo::agent::{
-    AgentStream, CodeAgent, CodeAgentBuilder, FunctionCallingAgent,
-    FunctionCallingAgentBuilder, McpAgentBuilder, StreamResult,
+    AgentStream, CodeAgent, CodeAgentBuilder, FunctionCallingAgent, FunctionCallingAgentBuilder,
+    McpAgentBuilder, StreamResult,
 };
 use lumo::agent::{McpAgent, Step};
 use lumo::errors::AgentError;
 use lumo::models::model_traits::{Model, ModelResponse};
 use lumo::models::ollama::{OllamaModel, OllamaModelBuilder};
-use lumo::models::openai::{
-    OpenAIServerModel, OpenAIServerModelBuilder, Status,
-};
+use lumo::models::openai::{OpenAIServerModel, OpenAIServerModelBuilder, Status};
 use lumo::models::types::Message;
 use lumo::tools::exa_search::ExaSearchTool;
 use lumo::tools::{
@@ -27,10 +24,8 @@ use mcp_client::{
 };
 use opentelemetry::trace::{FutureExt, SpanKind, TraceContextExt, Tracer};
 use opentelemetry::{global, Context, KeyValue};
-use std::io::Write;
 use std::{collections::HashMap, fs::File, io, time::Duration};
 use tokio::sync::broadcast;
-use tokio::sync::mpsc::Receiver;
 use tracing::Level;
 use tracing_subscriber::{fmt, EnvFilter};
 mod config;
@@ -200,7 +195,7 @@ async fn main() -> Result<()> {
 
     // Initialize tracing subscriber with custom formatting
     let tracer_provider = init_tracer();
-    let (tracer, cx) = if let Some(_) = &tracer_provider {
+    let (tracer, cx) = if tracer_provider.is_some() {
         let tracer = global::tracer("lumo");
         let span = tracer
             .span_builder("conversation")
@@ -402,29 +397,7 @@ The current time is {{current_time}}"#,
             None
         };
 
-        let (tx, rx) = broadcast::channel::<Status>(100);
-
-        // Spawn a separate task to handle streaming content printing
-        let content_printing_task = tokio::spawn(async move {
-            let mut rx = rx;
-            while let Ok(status) = rx.recv().await {
-                match status {
-                    Status::FirstContent(content) => {
-                        println!("\n{}", "✨ Final Answer:".bright_blue().bold());
-                        print!("{}", content);
-                    }
-                    Status::Content(content) => {
-                        print!("{}", content);
-                    }
-                    _ => {}
-                }
-                std::io::stdout().flush().unwrap_or(());
-                tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-            }
-            println!();
-        });
-
-        let mut result = agent.stream_run(&task, false, Some(tx.clone()))?;
+        let mut result = agent.stream_run(&task, false, None)?;
 
         // Process the stream and collect results (CLI prints)
         let mut final_answer = String::new();
@@ -441,12 +414,6 @@ The current time is {{current_time}}"#,
                 println!("Error: {:?}", step);
             }
         }
-
-        // Close the broadcast channel to signal UI task completion
-        drop(tx);
-
-        // Wait for the content printing task to complete
-        let _ = content_printing_task.await;
 
         if let Some(context) = &cx2 {
             context

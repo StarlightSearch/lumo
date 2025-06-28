@@ -1,7 +1,14 @@
 use std::io::Write;
 
-use lumo::{models::{model_traits::Model, openai::{OpenAIServerModelBuilder, Status}, types::{Message, MessageRole}}, tools::{AnyTool, DuckDuckGoSearchTool}};
 use anyhow::Result;
+use lumo::{
+    models::{
+        model_traits::Model,
+        openai::{OpenAIServerModelBuilder, Status},
+        types::{Message, MessageRole},
+    },
+    tools::{AnyTool, DuckDuckGoSearchTool},
+};
 use tokio::sync::broadcast;
 #[tokio::main]
 async fn main() -> Result<()> {

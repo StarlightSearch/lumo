@@ -7,7 +7,10 @@ use config::Servers;
 use lumo::{
     agent::{Agent, CodeAgentBuilder, FunctionCallingAgentBuilder},
     models::{openai::OpenAIServerModelBuilder, types::Message},
-    tools::{exa_search::ExaSearchTool, AsyncTool, DuckDuckGoSearchTool, GoogleSearchTool, VisitWebsiteTool},
+    tools::{
+        exa_search::ExaSearchTool, AsyncTool, DuckDuckGoSearchTool, GoogleSearchTool,
+        VisitWebsiteTool,
+    },
 };
 use opentelemetry::trace::FutureExt;
 use opentelemetry::trace::Tracer;
@@ -19,8 +22,8 @@ use opentelemetry::{
     trace::{SpanKind, TraceContextExt},
 };
 use opentelemetry_otlp::{WithExportConfig, WithHttpConfig};
-use opentelemetry_sdk::trace::{self as sdktrace, BatchConfigBuilder, BatchSpanProcessor};
 use opentelemetry_sdk::trace::SdkTracerProvider;
+use opentelemetry_sdk::trace::{self as sdktrace, BatchConfigBuilder, BatchSpanProcessor};
 use tracing::instrument;
 
 #[cfg(feature = "code")]
@@ -36,10 +39,10 @@ use {
 
 use actix_cors::Cors;
 use actix_web::http::header;
+use dotenv::dotenv;
 use serde::{Deserialize, Serialize};
 use std::net::TcpListener;
 use std::str::FromStr;
-use dotenv::dotenv;
 
 #[derive(Deserialize)]
 struct RunTaskRequest {
@@ -174,7 +177,8 @@ pub fn init_tracer() -> Option<SdkTracerProvider> {
                         if cfg!(debug_assertions) {
                             "development".to_string()
                         } else {
-                            std::env::var("ENVIRONMENT").unwrap_or_else(|_| "production".to_string())
+                            std::env::var("ENVIRONMENT")
+                                .unwrap_or_else(|_| "production".to_string())
                         },
                     ),
                     KeyValue::new("deployment.name", "lumo"),
@@ -310,7 +314,7 @@ async fn run_task(req: Json<RunTaskRequest>) -> Result<impl Responder, actix_web
                 .with_context(cx.clone())
                 .await
                 .map_err(actix_web::error::ErrorInternalServerError)?
-        },
+        }
 
         #[cfg(feature = "code")]
         Some("code-agent") => {
@@ -335,7 +339,7 @@ async fn run_task(req: Json<RunTaskRequest>) -> Result<impl Responder, actix_web
                 .with_context(cx.clone())
                 .await
                 .map_err(actix_web::error::ErrorInternalServerError)?
-        },
+        }
         _ => {
             // Default function calling agent logic...
             let servers = Servers::load().map_err(actix_web::error::ErrorInternalServerError)?;

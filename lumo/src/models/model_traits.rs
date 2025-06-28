@@ -2,12 +2,15 @@ use std::collections::HashMap;
 
 use crate::{
     errors::AgentError,
-    models::{openai::{OpenAIStreamResponse, Status, ToolCall}, types::Message},
+    models::{
+        openai::{Status, ToolCall},
+        types::Message,
+    },
     tools::tool_traits::ToolInfo,
 };
 use anyhow::Result;
 use async_trait::async_trait;
-use tokio::sync::{broadcast, mpsc::Receiver};
+use tokio::sync::broadcast;
 
 pub trait ModelResponse: Send + Sync {
     fn get_response(&self) -> Result<String, AgentError>;

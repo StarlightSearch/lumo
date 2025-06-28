@@ -1,8 +1,8 @@
 use std::net::TcpListener;
 
 use lumo_server::{init_tracer, run};
-use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter, fmt};
 use tracing_opentelemetry;
+use tracing_subscriber::{fmt, layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 #[actix_web::main]
 #[tracing::instrument]
