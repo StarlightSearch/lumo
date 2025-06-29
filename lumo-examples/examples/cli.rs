@@ -14,8 +14,7 @@ use lumo::models::openai::{
 };
 use lumo::models::types::Message;
 use lumo::tools::{
-    AsyncTool, DuckDuckGoSearchTool, GoogleSearchTool, PythonInterpreterTool, ToolInfo,
-    VisitWebsiteTool,
+    AsyncTool, DuckDuckGoSearchTool, ExaSearchTool, GoogleSearchTool, PythonInterpreterTool, TavilySearchTool, ToolInfo, VisitWebsiteTool
 };
 use serde_json;
 use std::fs::File;
@@ -34,6 +33,8 @@ enum ToolType {
     VisitWebsite,
     GoogleSearchTool,
     PythonInterpreter,
+    TavilySearch,
+    ExaSearch,
 }
 
 #[derive(Debug, Clone, ValueEnum)]
@@ -152,6 +153,8 @@ fn create_tool(tool_type: &ToolType) -> Box<dyn AsyncTool> {
         ToolType::VisitWebsite => Box::new(VisitWebsiteTool::new()),
         ToolType::GoogleSearchTool => Box::new(GoogleSearchTool::new(None)),
         ToolType::PythonInterpreter => Box::new(PythonInterpreterTool::new()),
+        ToolType::TavilySearch => Box::new(TavilySearchTool::new(10, None)),
+        ToolType::ExaSearch => Box::new(ExaSearchTool::new(10, None)),
     }
 }
 

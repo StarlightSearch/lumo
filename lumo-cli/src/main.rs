@@ -16,7 +16,7 @@ use lumo::models::types::Message;
 use lumo::tools::exa_search::ExaSearchTool;
 use lumo::tools::{
     AsyncTool, DuckDuckGoSearchTool, GoogleSearchTool, PythonInterpreterTool, ToolInfo,
-    VisitWebsiteTool,
+    VisitWebsiteTool, TavilySearchTool,
 };
 use mcp_client::{
     ClientCapabilities, ClientInfo, McpClient, McpClientTrait, StdioTransport, Transport,
@@ -51,6 +51,7 @@ enum ToolType {
     GoogleSearchTool,
     PythonInterpreter,
     ExaSearchTool,
+    TavilySearchTool,
 }
 
 #[derive(Debug, Clone, ValueEnum)]
@@ -185,6 +186,7 @@ fn create_tool(tool_type: &ToolType) -> Box<dyn AsyncTool> {
         ToolType::GoogleSearchTool => Box::new(GoogleSearchTool::new(None)),
         ToolType::PythonInterpreter => Box::new(PythonInterpreterTool::new()),
         ToolType::ExaSearchTool => Box::new(ExaSearchTool::new(3, None)),
+        ToolType::TavilySearchTool => Box::new(TavilySearchTool::new(10, None)),
     }
 }
 

@@ -4,6 +4,7 @@
 pub mod base;
 pub mod ddg_search;
 pub mod exa_search;
+pub mod tavily_search;
 pub mod final_answer;
 pub mod google_search;
 pub mod tool_traits;
@@ -14,8 +15,10 @@ pub mod python_interpreter;
 
 pub use base::*;
 pub use ddg_search::*;
+pub use exa_search::*;
 pub use final_answer::*;
 pub use google_search::*;
+pub use tavily_search::*;
 pub use tool_traits::*;
 pub use visit_website::*;
 

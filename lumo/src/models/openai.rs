@@ -329,7 +329,7 @@ impl Model for OpenAIServerModel {
 
         if !tools_to_call_from.is_empty() {
             body["tools"] = json!(tools_to_call_from);
-            body["tool_choice"] = json!("required");
+            body["tool_choice"] = json!("auto");
             span.set_attribute(KeyValue::new(
                 "gen_ai.request.tool_choice",
                 serde_json::to_string(&body["tool_choice"]).unwrap(),
@@ -432,7 +432,7 @@ impl Model for OpenAIServerModel {
 
         if !tools_to_call_from.is_empty() {
             body["tools"] = json!(tools_to_call_from);
-            body["tool_choice"] = json!("required");
+            body["tool_choice"] = json!("auto");
             span.set_attribute(KeyValue::new(
                 "gen_ai.request.tool_choice",
                 serde_json::to_string(&body["tool_choice"]).unwrap(),
