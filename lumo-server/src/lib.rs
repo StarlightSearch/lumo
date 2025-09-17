@@ -5,10 +5,12 @@ use anyhow::Result;
 use base64::{self, Engine};
 use config::Servers;
 use lumo::{
-    agent::{Agent, CodeAgentBuilder, FunctionCallingAgentBuilder},
+    agent::{Agent, FunctionCallingAgentBuilder},
     models::{openai::OpenAIServerModelBuilder, types::Message},
     tools::{exa_search::ExaSearchTool, AsyncTool, DuckDuckGoSearchTool, GoogleSearchTool, VisitWebsiteTool},
 };
+#[cfg(feature = "code")]
+use lumo::agent::CodeAgentBuilder;
 use opentelemetry::trace::FutureExt;
 use opentelemetry::trace::Tracer;
 use opentelemetry::trace::TracerProvider;

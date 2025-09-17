@@ -29,9 +29,9 @@ tracing = {workspace = true}
 
 
 # mcp
-mcp-client = {workspace = true, optional = true}
-mcp-core = {workspace = true, optional = true}
-tower = { workspace = true, features = ["timeout", "util"] , optional = true}
+mcp-client = {git = "https://github.com/block/goose.git", optional = true}
+mcp-core = {git = "https://github.com/block/goose.git", optional = true}
+tower = { version = "0.4", features = ["timeout", "util"], optional = true}
 tokio = {workspace = true, features = ["rt-multi-thread", "macros"], optional=true}
 async-stream = {workspace =true, optional = true}
 

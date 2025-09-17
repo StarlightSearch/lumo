@@ -99,7 +99,7 @@ where
         };
         let mut tools = Vec::new();
         for client in &mcp_clients {
-            tools.extend(client.list_tools(None).await?.tools);
+            tools.extend(client.list_tools(None, None).await?.tools);
         }
         let description = match description {
             Some(desc) => desc.to_string(),
@@ -424,7 +424,7 @@ where
                                 {
                                     for client in &self.mcp_clients {
                                         if client
-                                            .list_tools(None)
+                                            .list_tools(None, None)
                                             .await
                                             .map_err(|e| AgentError::Execution(e.to_string()))?
                                             .tools
@@ -434,6 +434,7 @@ where
                                             futures.push(client.call_tool(
                                                 &tool.function.name,
                                                 tool.function.arguments.clone(),
+                                                None,
                                             ));
                                         }
                                     }
