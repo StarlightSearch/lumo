@@ -20,7 +20,7 @@ COPY . .
 RUN cargo build --release --package lumo-server --features code
 
 # We do not need the Rust toolchain to run the binary!
-FROM debian:bookworm-slim AS runtime
+FROM debian:trixie-slim AS runtime
 WORKDIR /app
 
 # Combine RUN commands and cleanup in the same layer
