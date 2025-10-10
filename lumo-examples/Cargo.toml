@@ -12,12 +12,11 @@ repository = "https://github.com/akshayballal95/smolagents-rs"
 clap.workspace = true
 anyhow.workspace = true
 lumo = {workspace = true, features = ["all"]}
-mcp-core.workspace = true
-mcp-client.workspace = true
 async-trait.workspace = true
 tower.workspace = true
 colored.workspace = true
 tokio.workspace = true
+rmcp.workspace = true
 serde_json.workspace = true
 serde.workspace = true
 serde_yaml = "0.9"

@@ -33,15 +33,7 @@ dotenv = "0.15.0"
 
 [features]
 code = ["lumo/code-agent"]
-mcp = ["lumo/mcp", "dep:mcp-core", "dep:mcp-client", "dep:tower"]
-
-[dependencies.mcp-core]
-workspace = true
-optional = true
-
-[dependencies.mcp-client]
-workspace = true
-optional = true
+mcp = ["lumo/mcp"]
 
 [dependencies.tower]
 workspace = true

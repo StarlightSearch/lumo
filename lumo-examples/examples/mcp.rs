@@ -1,44 +1,25 @@
-use std::collections::HashMap;
-
 use anyhow::Result;
 use log::LevelFilter;
 use lumo::agent::{Agent, McpAgentBuilder};
 use lumo::models::openai::OpenAIServerModelBuilder;
-use mcp_client::{
-    ClientCapabilities, ClientInfo, Error as ClientError, McpClient, McpClientTrait,
-    StdioTransport, Transport,
+use rmcp::{
+    transport::{ConfigureCommandExt, TokioChildProcess},
+    ServiceExt,
 };
 use std::time::Duration;
+use tokio::process::Command;
 
 use lumo::prompts::TOOL_CALLING_SYSTEM_PROMPT;
 
 #[tokio::main]
-async fn main() -> Result<(), ClientError> {
-    // 1) Create the transport
-    let transport = StdioTransport::new(
-        "npx",
-        vec![
-            "@modelcontextprotocol/server-filesystem".to_string(),
-            "/home/akshay/projects/smolagents-rs".to_string(),
-        ],
-        HashMap::new(),
-    );
-
-    // 2) Start the transport to get a handle
-    let transport_handle = transport.start().await?;
-
-    // 3) Create the client with the middleware-wrapped service
-    let mut client = McpClient::connect(transport_handle, Duration::from_secs(30)).await?;
-
-    // Initialize
-    client
-        .initialize(
-            ClientInfo {
-                name: "test-client".into(),
-                version: "1.0.0".into(),
-            },
-            ClientCapabilities::default(),
-        )
+async fn main() -> Result<(), anyhow::Error> {
+    let client = ()
+        .serve(TokioChildProcess::new(Command::new("npx").configure(|cmd| {
+            cmd.args(&[
+            "@modelcontextprotocol/server-filesystem",
+            "/home/akshay/projects/smolagents-rs",
+        ]);
+        }))?)
         .await?;
 
     let model = OpenAIServerModelBuilder::new("gpt-4o-mini")

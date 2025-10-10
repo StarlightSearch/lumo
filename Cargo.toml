@@ -60,8 +60,6 @@ tracing-opentelemetry = "0.30.0"
 base64 = "0.22.1"
 
 # mcp
-mcp-client = {git = "https://github.com/block/goose.git"}
-mcp-core = {git = "https://github.com/block/goose.git"}
 tower = { version = "0.4", features = ["timeout", "util"] }
 tokio = {version = "1.43.0", features = ["rt-multi-thread", "macros"]}
 
