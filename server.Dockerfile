@@ -1,5 +1,5 @@
-FROM lukemathwalker/cargo-chef:0.1.72-rust-1.90.0 AS chef
-WORKDIR /app
+FROM lukemathwalker/cargo-chef:0.1.72-rust-1.90.0-slim-bullseye AS chef
+WORKDIR /app    
 RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
