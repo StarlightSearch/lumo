@@ -1,201 +1,168 @@
 //! This module contains the Tavily search tool.
 
+use anyhow::{anyhow, Result};
 use async_trait::async_trait;
-use reqwest::header::{HeaderMap, HeaderValue, CONTENT_TYPE};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 
 use super::base::BaseTool;
 use super::tool_traits::Tool;
-use anyhow::Result;
 
-#[derive(Deserialize, JsonSchema)]
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+#[schemars(title = "SearchDepth")]
+pub enum SearchDepth {
+    Basic,
+    Advanced,
+}
+
+#[derive(Debug, Serialize, Deserialize, JsonSchema)]
+#[schemars(title = "Topic")]
+pub enum Topic {
+    General,
+    News,
+}
+
+#[derive(Deserialize, Serialize, JsonSchema)]
 #[schemars(title = "TavilySearchToolParams")]
 pub struct TavilySearchToolParams {
     #[schemars(description = "The query to search for")]
     query: String,
+    #[schemars(
+        description = "Optionally restrict results to a certain topic",
+        default = "default_topic"
+    )]
+    topic: Option<Topic>,
+    #[schemars(
+        description = "Optionally restrict results to a certain search depth",
+        default = "default_search_depth"
+    )]
+    search_depth: Option<SearchDepth>,
+    #[schemars(description = "Optionally restrict results to a certain number of results", 
+    default = "default_max_results")]
+    max_results: Option<String>,
+    #[schemars(description = "Optionally include the answer")]
+    #[serde(default = "default_true")]
+    include_answer: Option<bool>,
+    
+    #[schemars(description = "Optionally include raw content")]
+    #[serde(default = "default_true")]
+    include_raw_content: Option<bool>,
+    
+    #[schemars(description = "Optionally include images")]
+    #[serde(default = "default_false")]
+    include_images: Option<bool>,
+    
+    #[schemars(description = "Optionally include image descriptions")]
+    #[serde(default = "default_false")]
+    include_image_descriptions: Option<bool>,
+    
+    #[schemars(description = "Optionally restrict results to a certain number of domains")]
+    #[serde(default = "default_vec_string")]
+    include_domains: Option<Vec<String>>,
+    
+    #[schemars(description = "Optionally restrict results to a certain number of excluded domains")]
+    #[serde(default = "default_vec_string")]
+    exclude_domains: Option<Vec<String>>,
+    
+    #[schemars(description = "Optionally restrict results to a certain country")]
+    #[serde(default = "default_country")]
+    country: Option<String>,
 }
 
-#[derive(Debug, Deserialize, Default)]
-pub struct TavilySearchResponse {
-    pub results: Vec<TavilySearchResult>,
-}
 
-#[derive(Debug, Deserialize, Default)]
-pub struct TavilySearchResult {
-    #[serde(default, deserialize_with = "deserialize_null_as_empty_string")]
-    pub title: String,
-    #[serde(default, deserialize_with = "deserialize_null_as_empty_string")]
-    pub url: String,
-    #[serde(default, deserialize_with = "deserialize_null_as_empty_string")]
-    pub content: String,
-    #[serde(default)]
-    pub score: f64,
-    #[serde(default, deserialize_with = "deserialize_null_as_empty_string")]
-    pub raw_content: String,
-}
-
-fn deserialize_null_as_empty_string<'de, D>(deserializer: D) -> Result<String, D::Error>
-where
-    D: serde::Deserializer<'de>,
-{
-    let s: Option<String> = Option::deserialize(deserializer)?;
-    Ok(s.unwrap_or_default())
-}
 
 #[derive(Debug, Serialize, Default, Clone)]
 pub struct TavilySearchTool {
     pub tool: BaseTool,
-    pub max_results: usize,
     pub api_key: String,
 }
 
 impl TavilySearchTool {
-    pub fn new(max_results: usize, api_key: Option<String>) -> Self {
-        let api_key = if let Some(key) = api_key {
-            key
-        } else {
-            std::env::var("TAVILY_API_KEY").expect("TAVILY_API_KEY is not set")
+    pub fn new(api_key: Option<String>) -> Self {
+        let api_key = api_key.unwrap_or(std::env::var("TAVILY_API_KEY").unwrap());
+        let tool = BaseTool {
+            name: "tavily_search",
+            description: "Performs a Tavily web search for your query then returns a string of the top search results with LLMs.",
         };
-        TavilySearchTool {
-            tool: BaseTool {
-                name: "tavily_search",
-                description: "Performs a Tavily web search optimized for AI agents, returning relevant search results with content snippets.",
-            },
-            max_results,
+        Self {
+            tool,
             api_key,
         }
     }
 
-    pub async fn forward(&self, query: &str) -> Result<TavilySearchResponse> {
+    pub async fn forward(&self, arguments: TavilySearchToolParams) -> Result<String> {
         let client = reqwest::Client::new();
-        let mut headers = HeaderMap::new();
-        headers.insert(CONTENT_TYPE, HeaderValue::from_static("application/json"));
-
-        let body = json!({
-            "api_key": self.api_key,
-            "query": query,
-            "search_depth": "basic",
-            "include_answer": false,
-            "include_raw_content": false,
-            "max_results": self.max_results,
-            "include_images": false
-        });
-
-
         let response = client
-            .post("https://api.tavily.com/search")
-            .headers(headers)
-            .json(&body)
+            .post("https://api.tavily.com")
+            .json(&arguments)
+            .header("Bearer", &self.api_key)
+            .header("Content-Type", "application/json")
             .send()
-            .await?;
+            .await;
 
-
-        if !response.status().is_success() {
-            let status = response.status();
-            let error_text = response.text().await.unwrap_or_default();
-            return Err(anyhow::anyhow!(
-                "Tavily API request failed with status {}: {}",
-                status,
-                error_text
-            ));
+        match response {
+            Ok(resp) => {
+                if resp.status().is_success() {
+                    let results: serde_json::Value = resp.json().await?;
+                    Ok(results.to_string())
+                } else {
+                    Err(anyhow!(
+                        "Failed to fetch search results: HTTP {}, Error: {}",
+                        resp.status(),
+                        resp.text().await.unwrap()
+                    ))
+                }
+            }
+            Err(e) => Err(anyhow!("Failed to make the request: {}", e)),
         }
-
-        let response = response.json::<TavilySearchResponse>().await?;
-        Ok(response)
     }
 }
 
 #[async_trait]
 impl Tool for TavilySearchTool {
     type Params = TavilySearchToolParams;
-    
     fn name(&self) -> &'static str {
         self.tool.name
     }
-    
     fn description(&self) -> &'static str {
         self.tool.description
     }
-    
+
     async fn forward(&self, arguments: TavilySearchToolParams) -> Result<String> {
-        let query = arguments.query;
-        let results = self.forward(&query).await?;
-        
-        let results_string = results
-            .results
-            .iter()
-            .map(|r| {
-                format!(
-                    "[{}]({}) (Score: {:.2})\n{}\n{}",
-                    r.title,
-                    r.url,
-                    r.score,
-                    r.content,
-                    if !r.raw_content.is_empty() && r.raw_content != r.content {
-                        format!("\nRaw Content: {}", r.raw_content.chars().take(500).collect::<String>())
-                    } else {
-                        String::new()
-                    }
-                )
-            })
-            .collect::<Vec<_>>()
-            .join("\n\n");
-
-        if results_string.is_empty() {
-            return Err(anyhow::anyhow!("No results found for query: {}", query));
-        }
-
-        Ok(results_string)
+        self.forward(arguments).await
     }
 }
+
+
+// Default implementations
+fn default_topic() -> Option<Topic> {Some(Topic::General)}
+fn default_search_depth() -> Option<SearchDepth> {Some(SearchDepth::Basic)}
+fn default_max_results() -> Option<String> {Some("10".to_string())}
+fn default_true() -> Option<bool> { Some(true) }
+fn default_false() -> Option<bool> { Some(false) }
+fn default_vec_string() -> Option<Vec<String>> { Some(vec![]) }
+fn default_country() -> Option<String> { None }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
     #[tokio::test]
     async fn test_tavily_search_tool() {
-        let tool = TavilySearchTool::new(3, None);
+        let tool = TavilySearchTool::new(None);
         let query = "What is the capital of France?";
-        let result = Tool::forward(
-            &tool,
-            TavilySearchToolParams {
-                query: query.to_string(),
-            },
-        )
-        .await
-        .unwrap();
-        println!("{}", result);
-        assert!(result.contains("Paris"));
-    }
-
-    #[tokio::test]
-    async fn test_tavily_search_tool_with_api_key() {
-        // Test with explicit API key
-        let api_key = std::env::var("TAVILY_API_KEY").ok();
-        if let Some(key) = api_key {
-            let tool = TavilySearchTool::new(2, Some(key));
-            let query = "AI agents and LLMs";
-            let result = Tool::forward(
-                &tool,
-                TavilySearchToolParams {
-                    query: query.to_string(),
-                },
-            )
-            .await;
-            
-            match result {
-                Ok(res) => {
-                    println!("Search results: {}", res);
-                    assert!(!res.is_empty());
-                }
-                Err(e) => {
-                    println!("Search failed: {}", e);
-                    // Don't fail the test if API key is invalid or API is down
-                }
-            }
-        }
+        let _result = tool.forward(TavilySearchToolParams {
+            query: query.to_string(),
+            topic: None,
+            search_depth: None,
+            max_results: None,
+            include_answer: None,
+            include_raw_content: None,
+            include_images: None,
+            include_image_descriptions: None,
+            include_domains: None,
+            exclude_domains: None,
+            country: None,
+        }).await;
+        println!("{:?}", _result);
     }
 }

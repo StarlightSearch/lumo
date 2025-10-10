@@ -185,7 +185,7 @@ fn create_tool(tool_type: &ToolType) -> Box<dyn AsyncTool> {
         ToolType::GoogleSearchTool => Box::new(GoogleSearchTool::new(None)),
         ToolType::PythonInterpreter => Box::new(PythonInterpreterTool::new()),
         ToolType::ExaSearchTool => Box::new(ExaSearchTool::new(3, None)),
-        ToolType::TavilySearchTool => Box::new(TavilySearchTool::new(10, None)),
+        ToolType::TavilySearchTool => Box::new(TavilySearchTool::new(None)),
     }
 }
 
