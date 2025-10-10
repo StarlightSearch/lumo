@@ -2,20 +2,18 @@ use std::collections::HashMap;
 
 use anyhow::Result;
 use log::LevelFilter;
+use lumo::agent::{Agent, McpAgentBuilder};
+use lumo::models::openai::OpenAIServerModelBuilder;
 use mcp_client::{
     ClientCapabilities, ClientInfo, Error as ClientError, McpClient, McpClientTrait,
     StdioTransport, Transport,
 };
-use lumo::agent::{Agent, McpAgentBuilder};
-use lumo::models::openai::OpenAIServerModelBuilder;
 use std::time::Duration;
 
 use lumo::prompts::TOOL_CALLING_SYSTEM_PROMPT;
 
 #[tokio::main]
 async fn main() -> Result<(), ClientError> {
-
-
     // 1) Create the transport
     let transport = StdioTransport::new(
         "npx",
@@ -28,7 +26,6 @@ async fn main() -> Result<(), ClientError> {
 
     // 2) Start the transport to get a handle
     let transport_handle = transport.start().await?;
-
 
     // 3) Create the client with the middleware-wrapped service
     let mut client = McpClient::connect(transport_handle, Duration::from_secs(30)).await?;
@@ -54,9 +51,13 @@ async fn main() -> Result<(), ClientError> {
         .with_mcp_clients(vec![client])
         .with_logging_level(Some(LevelFilter::Info))
         .build()
-        .await.unwrap();
+        .await
+        .unwrap();
     // Use agent here
-    let _result = agent.run("List the directories in the current directory!", false).await.unwrap();
+    let _result = agent
+        .run("List the directories in the current directory!", false)
+        .await
+        .unwrap();
 
     Ok(())
 }

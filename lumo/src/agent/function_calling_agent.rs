@@ -4,13 +4,14 @@ use futures::future::join_all;
 use opentelemetry::trace::{FutureExt, TraceContextExt};
 use serde_json::json;
 use std::collections::HashMap;
+use tokio::sync::broadcast;
 
 use crate::{
     agent::Agent,
     errors::AgentError,
     models::{
         model_traits::Model,
-        openai::{FunctionCall, ToolCall},
+        openai::{FunctionCall, Status, ToolCall},
         types::Message,
     },
     prompts::TOOL_CALLING_SYSTEM_PROMPT,
@@ -208,7 +209,11 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
     ///
     /// Returns None if the step is not final.
     #[instrument(skip(self, log_entry), fields(step = ?self.get_step_number()))]
-    async fn step(&mut self, log_entry: &mut Step) -> Result<Option<AgentStep>, AgentError> {
+    async fn step(
+        &mut self,
+        log_entry: &mut Step,
+        tx: Option<broadcast::Sender<Status>>,
+    ) -> Result<Option<AgentStep>, AgentError> {
         match log_entry {
             Step::ActionStep(step_log) => {
                 let cx = self.telemetry.start_step(self.get_step_number() as i64);
@@ -249,22 +254,40 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
 
                 tools.extend(managed_agents);
 
-                let model_message = self
-                    .base_agent
-                    .model
-                    .run(
-                        self.base_agent.input_messages.as_ref().unwrap().clone(),
-                        self.base_agent.history.clone(),
-                        tools,
-                        None,
-                        Some(HashMap::from([(
-                            "stop".to_string(),
-                            vec!["Observation:".to_string()],
-                        )])),
-                    )
-                    .with_context(cx.clone())
-                    .await?;
-
+                let model_message = match tx {
+                    None => {
+                        self.base_agent
+                            .model
+                            .run(
+                                self.base_agent.input_messages.as_ref().unwrap().clone(),
+                                self.base_agent.history.clone(),
+                                tools,
+                                None,
+                                Some(HashMap::from([(
+                                    "stop".to_string(),
+                                    vec!["Observation:".to_string()],
+                                )])),
+                            )
+                            .with_context(cx.clone())
+                            .await?
+                    }
+                    Some(tx) => {
+                        self.base_agent
+                            .model
+                            .run_stream(
+                                self.base_agent.input_messages.as_ref().unwrap().clone(),
+                                self.base_agent.history.clone(),
+                                tools,
+                                None,
+                                Some(HashMap::from([(
+                                    "stop".to_string(),
+                                    vec!["Observation:".to_string()],
+                                )])),
+                                tx,
+                            )
+                            .await?
+                    }
+                };
                 step_log.llm_output = Some(model_message.get_response().unwrap_or_default());
                 let mut observations = Vec::new();
                 let mut tools = model_message.get_tools_used()?;
@@ -396,7 +419,6 @@ impl<M: Model + std::fmt::Debug + Send + Sync + 'static> Agent for FunctionCalli
                         ));
                         cx.span().end_with_timestamp(std::time::SystemTime::now());
                     }
-                  
                 }
 
                 step_log.observations = Some(observations);

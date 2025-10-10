@@ -9,7 +9,7 @@ use crate::{
     local_python_interpreter::LocalPythonInterpreter,
     models::{
         model_traits::Model,
-        openai::{FunctionCall, ToolCall},
+        openai::{FunctionCall, Status, ToolCall},
         types::Message,
     },
     prompts::CODE_SYSTEM_PROMPT,
@@ -208,7 +208,11 @@ impl<M: Model + Send + Sync + 'static> Agent for CodeAgent<M> {
         self.base_agent.model()
     }
     #[instrument(skip(self, log_entry), fields(step = ?self.get_step_number()))]
-    async fn step(&mut self, log_entry: &mut Step) -> Result<Option<AgentStep>, AgentError> {
+    async fn step(
+        &mut self,
+        log_entry: &mut Step,
+        _tx: Option<tokio::sync::broadcast::Sender<Status>>,
+    ) -> Result<Option<AgentStep>, AgentError> {
         let step_result = match log_entry {
             Step::ActionStep(step_log) => {
                 let cx = self.telemetry.start_step(self.get_step_number() as i64);

@@ -1,10 +1,10 @@
 //! This module contains the Google search tool.
 
+use anyhow::{anyhow, Result};
 use async_trait::async_trait;
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use anyhow::{anyhow, Result};
 
 use super::base::BaseTool;
 use super::tool_traits::Tool;
@@ -117,10 +117,7 @@ impl GoogleSearchTool {
                     ))
                 }
             }
-            Err(e) => Err(anyhow!(
-                "Failed to make the request: {}",
-                e
-            )),
+            Err(e) => Err(anyhow!("Failed to make the request: {}", e)),
         }
     }
 }

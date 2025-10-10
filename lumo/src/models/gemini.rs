@@ -2,7 +2,10 @@ use std::collections::HashMap;
 
 use crate::{
     errors::AgentError,
-    models::types::{Message, MessageRole},
+    models::{
+        openai::Status,
+        types::{Message, MessageRole},
+    },
     tools::ToolInfo,
 };
 use anyhow::Result;
@@ -10,6 +13,7 @@ use async_trait::async_trait;
 use reqwest::Client;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
+use tokio::sync::broadcast;
 
 use super::{
     model_traits::{Model, ModelResponse},
@@ -322,6 +326,19 @@ impl Model for GeminiServerModel {
                 response.text().await.unwrap(),
             ))),
         }
+    }
+
+    #[allow(unused_variables)]
+    async fn run_stream(
+        &self,
+        messages: Vec<Message>,
+        history: Option<Vec<Message>>,
+        tools_to_call_from: Vec<ToolInfo>,
+        max_tokens: Option<usize>,
+        args: Option<HashMap<String, Vec<String>>>,
+        tx: broadcast::Sender<Status>,
+    ) -> Result<Box<dyn ModelResponse>, AgentError> {
+        unimplemented!()
     }
 }
 

@@ -1,16 +1,20 @@
+use base64::Engine;
+use dotenv::dotenv;
+use opentelemetry::trace::TracerProvider;
 use opentelemetry::KeyValue;
 use opentelemetry_otlp::{WithExportConfig, WithHttpConfig};
 use opentelemetry_sdk::trace::{BatchConfigBuilder, BatchSpanProcessor, SdkTracerProvider};
-use opentelemetry::trace::TracerProvider;
-use base64::Engine;
 use std::env;
-use dotenv::dotenv;
 
 pub fn init_tracer() -> Option<(SdkTracerProvider, String)> {
     dotenv().ok();
 
     let (langfuse_public_key, langfuse_secret_key, endpoint, host) = if cfg!(debug_assertions) {
-        match (env::var("LANGFUSE_PUBLIC_KEY_DEV"), env::var("LANGFUSE_SECRET_KEY_DEV"), env::var("LANGFUSE_HOST_DEV")) {
+        match (
+            env::var("LANGFUSE_PUBLIC_KEY_DEV"),
+            env::var("LANGFUSE_SECRET_KEY_DEV"),
+            env::var("LANGFUSE_HOST_DEV"),
+        ) {
             (Ok(public_key), Ok(secret_key), Ok(host)) => (
                 public_key,
                 secret_key,
@@ -20,7 +24,11 @@ pub fn init_tracer() -> Option<(SdkTracerProvider, String)> {
             _ => return None, // If any key is missing, return None to disable tracing
         }
     } else {
-        match (env::var("LANGFUSE_PUBLIC_KEY"), env::var("LANGFUSE_SECRET_KEY"), env::var("LANGFUSE_HOST")) {
+        match (
+            env::var("LANGFUSE_PUBLIC_KEY"),
+            env::var("LANGFUSE_SECRET_KEY"),
+            env::var("LANGFUSE_HOST"),
+        ) {
             (Ok(public_key), Ok(secret_key), Ok(host)) => (
                 public_key,
                 secret_key,
@@ -71,7 +79,8 @@ pub fn init_tracer() -> Option<(SdkTracerProvider, String)> {
                         if cfg!(debug_assertions) {
                             "development".to_string()
                         } else {
-                            std::env::var("ENVIRONMENT").unwrap_or_else(|_| "production".to_string())
+                            std::env::var("ENVIRONMENT")
+                                .unwrap_or_else(|_| "production".to_string())
                         },
                     ),
                     KeyValue::new("deployment.name", "lumo"),

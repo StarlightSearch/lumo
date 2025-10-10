@@ -5,7 +5,7 @@ use crate::{
     errors::AgentError,
     models::{
         model_traits::Model,
-        openai::{FunctionCall, ToolCall},
+        openai::{FunctionCall, Status, ToolCall},
         types::Message,
     },
     prompts::TOOL_CALLING_SYSTEM_PROMPT,
@@ -20,6 +20,7 @@ use rmcp::{
 };
 use opentelemetry::trace::{FutureExt, TraceContextExt};
 use serde_json::json;
+use tokio::sync::broadcast;
 use tracing::instrument;
 
 use super::{Agent, AgentStep, MultiStepAgent, Step};
@@ -46,7 +47,7 @@ where
     base_agent: MultiStepAgent<M>,
     mcp_clients: Vec<RunningService<RoleClient, ()>>,
     tools: Vec<Tool>,
-    telemetry: AgentTelemetry,  
+    telemetry: AgentTelemetry,
 }
 
 impl From<Tool> for ToolInfo {
@@ -275,7 +276,11 @@ where
     ///
     /// Returns None if the step is not final.
     #[instrument(skip(self, log_entry), fields(step = ?self.get_step_number()))]
-    async fn step(&mut self, log_entry: &mut Step) -> Result<Option<AgentStep>, AgentError> {
+    async fn step(
+        &mut self,
+        log_entry: &mut Step,
+        _tx: Option<broadcast::Sender<Status>>,
+    ) -> Result<Option<AgentStep>, AgentError> {
         match log_entry {
             Step::ActionStep(step_log) => {
                 let cx = self.telemetry.start_step(self.get_step_number() as i64);

@@ -32,9 +32,8 @@ where
         impl Visit for ToolCallsVisitor {
             fn record_debug(&mut self, _: &tracing::field::Field, _: &dyn std::fmt::Debug) {}
             fn record_str(&mut self, field: &tracing::field::Field, value: &str) {
-                
                 if field.name() == "tool_calls" {
-                    self.0 = Some(serde_json::from_str::<Vec<ToolCall>>(&value).unwrap_or_default());
+                    self.0 = Some(serde_json::from_str::<Vec<ToolCall>>(value).unwrap_or_default());
                 }
             }
             fn record_u64(&mut self, field: &tracing::field::Field, value: u64) {
@@ -47,10 +46,9 @@ where
         let mut visitor = ToolCallsVisitor(None, None);
         event.record(&mut visitor);
 
-
         if let Some(step) = visitor.1 {
             println!("\n{} {}", "📍 Step:".bright_cyan().bold(), step);
-        } 
+        }
 
         if let Some(tool_calls) = visitor.0 {
             if !tool_calls.is_empty() {
@@ -126,17 +124,6 @@ impl CliPrinter {
     pub fn print_step(step: &Step) -> Result<String> {
         match step {
             Step::ActionStep(action_step) => {
-                // println!("\n{} {}", "📍 Step:".bright_cyan().bold(), action_step.step);
-                // if let Some(tool_call) = &action_step.tool_call {
-                //     if !tool_call.is_empty() {
-                //         if tool_call[0].function.name != "python_interpreter" {
-                //             Self::print_regular_tool_call(tool_call);
-                //         } else {
-                //             Self::print_python_tool_call(tool_call);
-                //         }
-                //     }
-                // }
-
                 if let Some(error) = &action_step.error {
                     println!("{} {}", "❌ Error:".bright_red().bold(), error);
                 }

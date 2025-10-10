@@ -55,7 +55,7 @@ impl ToolInfo {
         let generator = settings.into_generator();
 
         let parameters = generator.into_root_schema_for::<P>();
-        
+
         Self {
             tool_type: ToolType::Function,
             function: ToolFunctionInfo {
@@ -108,7 +108,9 @@ impl<T: Tool + Clone + 'static> AsyncTool for T {
                 json!(&self.tool_info().function.parameters)["properties"]
             ))
         })?;
-        Tool::forward(self, params).await.map_err(|e| AgentError::Execution(e.to_string()))
+        Tool::forward(self, params)
+            .await
+            .map_err(|e| AgentError::Execution(e.to_string()))
     }
 
     fn clone_box(&self) -> Box<dyn AsyncTool> {

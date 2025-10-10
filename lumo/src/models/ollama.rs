@@ -1,10 +1,15 @@
 use std::collections::HashMap;
 
-use opentelemetry::{global, trace::{Span, Tracer}, Context, KeyValue};
+use opentelemetry::{
+    global,
+    trace::{Span, Tracer},
+    Context, KeyValue,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use tokio::sync::broadcast;
 
-use crate::{errors::AgentError, tools::ToolInfo};
+use crate::{errors::AgentError, models::openai::Status, tools::ToolInfo};
 use anyhow::Result;
 use async_trait::async_trait;
 use reqwest::Client;
@@ -179,22 +184,27 @@ impl Model for OllamaModel {
         if let Some(history) = history {
             messages = [history, messages].concat();
         }
-        let messages = messages.into_iter().map(|m| OllamaMessage {
-            role: m.role,
-            content: m.content.into(),
-            tool_calls: m.tool_calls.map(|tool_calls| {
-                tool_calls.into_iter().map(|tc| OllamaToolCall {
-                    id: tc.id,
-                    call_type: tc.call_type,
-                    function: OllamaFunctionCall {
-                        name: tc.function.name,
-                        arguments: tc.function.arguments,
-                    },
-                }).collect()
-            }),
-            tool_id: m.tool_call_id,
-        }).collect::<Vec<_>>();
-
+        let messages = messages
+            .into_iter()
+            .map(|m| OllamaMessage {
+                role: m.role,
+                content: m.content.into(),
+                tool_calls: m.tool_calls.map(|tool_calls| {
+                    tool_calls
+                        .into_iter()
+                        .map(|tc| OllamaToolCall {
+                            id: tc.id,
+                            call_type: tc.call_type,
+                            function: OllamaFunctionCall {
+                                name: tc.function.name,
+                                arguments: tc.function.arguments,
+                            },
+                        })
+                        .collect()
+                }),
+                tool_id: m.tool_call_id,
+            })
+            .collect::<Vec<_>>();
 
         let mut body = json!({
             "model": self.model_id,
@@ -207,15 +217,20 @@ impl Model for OllamaModel {
             "max_tokens": max_tokens.unwrap_or(self.max_tokens),
         });
 
-        
         let parent_cx = Context::current();
         let tracer = global::tracer("lumo");
-        let mut span = tracer.span_builder("OllamaModel::run").with_start_time(std::time::SystemTime::now()).start_with_context(&tracer, &parent_cx);
+        let mut span = tracer
+            .span_builder("OllamaModel::run")
+            .with_start_time(std::time::SystemTime::now())
+            .start_with_context(&tracer, &parent_cx);
         span.set_attributes(vec![
             KeyValue::new("input.value", serde_json::to_string(&messages).unwrap()),
             KeyValue::new("llm.model_name", self.model_id.clone()),
             KeyValue::new("gen_ai.request.temperature", self.temperature.to_string()),
-            KeyValue::new("gen_ai.request.max_tokens", max_tokens.unwrap_or(self.max_tokens).to_string()),
+            KeyValue::new(
+                "gen_ai.request.max_tokens",
+                max_tokens.unwrap_or(self.max_tokens).to_string(),
+            ),
             KeyValue::new("timestamp", chrono::Utc::now().to_rfc3339()),
         ]);
 
@@ -254,8 +269,24 @@ impl Model for OllamaModel {
         let output = response.json::<OllamaResponse>().await.map_err(|e| {
             AgentError::Generation(format!("Failed to parse response from Ollama: {}", e))
         })?;
-        span.set_attribute(KeyValue::new("output.value", serde_json::to_string_pretty(&output).unwrap()));
+        span.set_attribute(KeyValue::new(
+            "output.value",
+            serde_json::to_string_pretty(&output).unwrap(),
+        ));
         span.end_with_timestamp(std::time::SystemTime::now());
         Ok(Box::new(output))
+    }
+
+    #[allow(unused_variables)]
+    async fn run_stream(
+        &self,
+        messages: Vec<Message>,
+        history: Option<Vec<Message>>,
+        tools_to_call_from: Vec<ToolInfo>,
+        max_tokens: Option<usize>,
+        args: Option<HashMap<String, Vec<String>>>,
+        tx: broadcast::Sender<Status>,
+    ) -> Result<Box<dyn ModelResponse>, AgentError> {
+        unimplemented!()
     }
 }

@@ -19,11 +19,11 @@ pub struct ExaSearchToolParams {
 
 #[derive(Debug, Deserialize, Default)]
 pub struct ExaSearchResponse {
-    pub results: Vec<SearchResult>,
+    pub results: Vec<ExaSearchResult>,
 }
 
 #[derive(Debug, Deserialize, Default)]
-pub struct SearchResult {
+pub struct ExaSearchResult {
     #[serde(default, deserialize_with = "deserialize_null_as_empty_string")]
     pub title: String,
     #[serde(default, deserialize_with = "deserialize_null_as_empty_string")]
@@ -32,6 +32,8 @@ pub struct SearchResult {
     pub author: String,
     #[serde(default, deserialize_with = "deserialize_null_as_empty_string")]
     pub text: String,
+    #[serde(default, deserialize_with = "deserialize_null_as_empty_string")]
+    pub summary: String,
 }
 
 fn deserialize_null_as_empty_string<'de, D>(deserializer: D) -> Result<String, D::Error>
@@ -81,11 +83,11 @@ impl ExaSearchTool {
         });
 
         let response = client
-        .post("https://api.exa.ai/search")
-        .headers(headers)
-        .json(&body)
-        .send()
-        .await?;
+            .post("https://api.exa.ai/search")
+            .headers(headers)
+            .json(&body)
+            .send()
+            .await?;
 
         let response = response.json::<ExaSearchResponse>().await?;
         Ok(response)
@@ -109,10 +111,11 @@ impl Tool for ExaSearchTool {
             .iter()
             .map(|r| {
                 format!(
-                    "[{}]({}) \n{}",
+                    "[{}]({}) \n{} \n{}",
                     r.title.clone(),
                     r.url.clone(),
-                    r.text.clone()
+                    r.text.clone(),
+                    r.summary.clone()
                 )
             })
             .collect::<Vec<_>>()
@@ -120,6 +123,7 @@ impl Tool for ExaSearchTool {
         if results_string.is_empty() {
             return Err(anyhow::anyhow!("No results found for query: {}", query));
         }
+
         Ok(results_string)
     }
 }
@@ -132,7 +136,14 @@ mod tests {
     async fn test_exa_search_tool() {
         let tool = ExaSearchTool::new(2, None);
         let query = "What is the capital of France?";
-        let result = Tool::forward(&tool, ExaSearchToolParams { query: query.to_string() }).await.unwrap();
+        let result = Tool::forward(
+            &tool,
+            ExaSearchToolParams {
+                query: query.to_string(),
+            },
+        )
+        .await
+        .unwrap();
         println!("{}", result);
         assert!(result.contains("Paris"));
     }

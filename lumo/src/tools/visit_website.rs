@@ -24,7 +24,7 @@ impl VisitWebsiteTool {
         }
     }
 
-    pub async fn forward(&self, url: &str) -> String{
+    pub async fn forward(&self, url: &str) -> String {
         let client = reqwest::Client::builder()
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36")
             .timeout(std::time::Duration::from_secs(10))
@@ -65,7 +65,10 @@ impl VisitWebsiteTool {
                     )
                 }
             }
-            Err(e) => format!("Failed to make the request to {}: {}. Try another website URL.", url, e),
+            Err(e) => format!(
+                "Failed to make the request to {}: {}. Try another website URL.",
+                url, e
+            ),
         }
     }
 }

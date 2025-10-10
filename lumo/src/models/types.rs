@@ -35,7 +35,6 @@ pub struct Message {
     pub tool_call_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tool_calls: Option<Vec<ToolCall>>,
-
 }
 
 pub struct MessageBuilder {
@@ -71,7 +70,6 @@ impl MessageBuilder {
         }
     }
 }
-
 
 impl std::fmt::Display for Message {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {

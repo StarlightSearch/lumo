@@ -1,4 +1,4 @@
-use anyhow::{Context, Result, anyhow};
+use anyhow::{anyhow, Context, Result};
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -36,7 +36,7 @@ pub struct Servers {
 impl Servers {
     pub fn load() -> Result<Self> {
         let config_path = Self::config_path()?;
-        
+
         // If config file doesn't exist, create it with defaults
         if !config_path.exists() {
             Self::create_default_config(&config_path)?;
@@ -45,9 +45,9 @@ impl Servers {
         // Read and parse the config file
         let config_str = fs::read_to_string(&config_path)
             .with_context(|| format!("Failed to read config file: {:?}", config_path))?;
-        
-        let servers: Servers = serde_yaml::from_str(&config_str)
-            .with_context(|| "Failed to parse servers.yaml")?;
+
+        let servers: Servers =
+            serde_yaml::from_str(&config_str).with_context(|| "Failed to parse servers.yaml")?;
 
         // Validate all server configurations
         servers.validate()?;
@@ -61,7 +61,9 @@ impl Servers {
         }
 
         for (name, config) in &self.servers {
-            config.validate().with_context(|| format!("Invalid configuration for server '{}'", name))?;
+            config
+                .validate()
+                .with_context(|| format!("Invalid configuration for server '{}'", name))?;
         }
 
         Ok(())
@@ -72,11 +74,11 @@ impl Servers {
         if let Some(parent) = path.parent() {
             fs::create_dir_all(parent)?;
         }
-        
+
         // Write default configuration
         let default_config = include_str!("config/servers.yaml");
         fs::write(path, default_config)?;
-        
+
         Ok(())
     }
 
@@ -86,5 +88,4 @@ impl Servers {
 
         Ok(proj_dirs.config_dir().join("servers.yaml"))
     }
-
-} 
+}

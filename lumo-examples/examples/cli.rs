@@ -3,20 +3,23 @@ use std::collections::HashMap;
 use anyhow::Result;
 use async_trait::async_trait;
 use clap::{Parser, ValueEnum};
-use lumo::models::gemini::{GeminiServerModel, GeminiServerModelBuilder};
-use serde_json;
-use lumo::agent::{CodeAgentBuilder, FunctionCallingAgentBuilder, Step};
 use lumo::agent::{Agent, CodeAgent, FunctionCallingAgent};
+use lumo::agent::{CodeAgentBuilder, FunctionCallingAgentBuilder, Step};
 use lumo::errors::AgentError;
+use lumo::models::gemini::{GeminiServerModel, GeminiServerModelBuilder};
 use lumo::models::model_traits::{Model, ModelResponse};
 use lumo::models::ollama::{OllamaModel, OllamaModelBuilder};
-use lumo::models::openai::{OpenAIServerModel, OpenAIServerModelBuilder};
+use lumo::models::openai::{
+    OpenAIServerModel, OpenAIServerModelBuilder, OpenAIStreamResponse, Status,
+};
 use lumo::models::types::Message;
 use lumo::tools::{
-    AsyncTool, DuckDuckGoSearchTool, GoogleSearchTool, PythonInterpreterTool, ToolInfo,
-    VisitWebsiteTool,
+    AsyncTool, DuckDuckGoSearchTool, ExaSearchTool, GoogleSearchTool, PythonInterpreterTool, TavilySearchTool, ToolInfo, VisitWebsiteTool
 };
+use serde_json;
 use std::fs::File;
+use tokio::sync::broadcast;
+use tokio::sync::mpsc::Receiver;
 
 #[derive(Debug, Clone, ValueEnum)]
 enum AgentType {
@@ -30,6 +33,8 @@ enum ToolType {
     VisitWebsite,
     GoogleSearchTool,
     PythonInterpreter,
+    TavilySearch,
+    ExaSearch,
 }
 
 #[derive(Debug, Clone, ValueEnum)]
@@ -77,10 +82,28 @@ impl Model for ModelWrapper {
         args: Option<HashMap<String, Vec<String>>>,
     ) -> Result<Box<dyn ModelResponse>, AgentError> {
         match self {
-            ModelWrapper::OpenAI(m) => Ok(m.run(messages, history, tools, max_tokens, args).await?),
-            ModelWrapper::Ollama(m) => Ok(m.run(messages, history, tools, max_tokens, args).await?),
-            ModelWrapper::Gemini(m) => Ok(m.run(messages, history, tools, max_tokens, args).await?),
+            ModelWrapper::OpenAI(m) => {
+                Ok(m.run(messages, history, tools, max_tokens, args).await?)
+            }
+            ModelWrapper::Ollama(m) => {
+                Ok(m.run(messages, history, tools, max_tokens, args).await?)
+            }
+            ModelWrapper::Gemini(m) => {
+                Ok(m.run(messages, history, tools, max_tokens, args).await?)
+            }
         }
+    }
+    #[allow(unused_variables)]
+    async fn run_stream(
+        &self,
+        messages: Vec<Message>,
+        history: Option<Vec<Message>>,
+        tools: Vec<ToolInfo>,
+        max_tokens: Option<usize>,
+        args: Option<HashMap<String, Vec<String>>>,
+        tx: broadcast::Sender<Status>,
+    ) -> Result<Box<dyn ModelResponse>, AgentError> {
+        unimplemented!()
     }
 }
 
@@ -130,6 +153,8 @@ fn create_tool(tool_type: &ToolType) -> Box<dyn AsyncTool> {
         ToolType::VisitWebsite => Box::new(VisitWebsiteTool::new()),
         ToolType::GoogleSearchTool => Box::new(GoogleSearchTool::new(None)),
         ToolType::PythonInterpreter => Box::new(PythonInterpreterTool::new()),
+        ToolType::TavilySearch => Box::new(TavilySearchTool::new(10, None)),
+        ToolType::ExaSearch => Box::new(ExaSearchTool::new(10, None)),
     }
 }
 
@@ -141,14 +166,18 @@ async fn main() -> Result<()> {
 
     // Create model based on type
     let model = match args.model_type {
-        ModelType::OpenAI => ModelWrapper::OpenAI(OpenAIServerModelBuilder::new(&args.model_id)
-            .with_base_url(args.base_url.as_deref())
-            .with_api_key(args.api_key.as_deref())
-            .build()?),
-        ModelType::Gemini => ModelWrapper::Gemini(GeminiServerModelBuilder::new(&args.model_id)
-            .with_base_url(args.base_url.as_deref())
-            .with_api_key(args.api_key.as_deref())
-            .build()?),
+        ModelType::OpenAI => ModelWrapper::OpenAI(
+            OpenAIServerModelBuilder::new(&args.model_id)
+                .with_base_url(args.base_url.as_deref())
+                .with_api_key(args.api_key.as_deref())
+                .build()?,
+        ),
+        ModelType::Gemini => ModelWrapper::Gemini(
+            GeminiServerModelBuilder::new(&args.model_id)
+                .with_base_url(args.base_url.as_deref())
+                .with_api_key(args.api_key.as_deref())
+                .build()?,
+        ),
         ModelType::Ollama => ModelWrapper::Ollama(
             OllamaModelBuilder::new()
                 .model_id(&args.model_id)
@@ -161,16 +190,20 @@ async fn main() -> Result<()> {
 
     // Create agent based on type
     let mut agent = match args.agent_type {
-        AgentType::FunctionCalling => AgentWrapper::FunctionCalling(FunctionCallingAgentBuilder::new(model)
-            .with_tools(tools)
-            .with_system_prompt(Some("CLI Agent"))
-            .with_max_steps(args.max_steps)
-            .build()?,),
-        AgentType::Code => AgentWrapper::Code(CodeAgentBuilder::new(model)
-            .with_tools(tools)
-            .with_system_prompt(Some("CLI Agent"))
-            .with_max_steps(args.max_steps)
-            .build()?,),
+        AgentType::FunctionCalling => AgentWrapper::FunctionCalling(
+            FunctionCallingAgentBuilder::new(model)
+                .with_tools(tools)
+                .with_system_prompt(Some("CLI Agent"))
+                .with_max_steps(args.max_steps)
+                .build()?,
+        ),
+        AgentType::Code => AgentWrapper::Code(
+            CodeAgentBuilder::new(model)
+                .with_tools(tools)
+                .with_system_prompt(Some("CLI Agent"))
+                .with_max_steps(args.max_steps)
+                .build()?,
+        ),
     };
 
     // Run the agent with the task from stdin

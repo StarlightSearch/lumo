@@ -92,10 +92,9 @@ impl AgentTelemetry {
                 KeyValue::new("timestamp", chrono::Utc::now().to_rfc3339()),
             ])
             .with_start_time(std::time::SystemTime::now())
-            .start_with_context(&tracer, &cx);
+            .start_with_context(&tracer, cx);
         let cx = Context::current_with_span(span);
 
-       
         cx.span()
             .set_attribute(KeyValue::new("gen_ai.tool.name", function_name.to_string()));
         cx.span().set_attributes(vec![
@@ -155,7 +154,8 @@ impl AgentTelemetry {
         if let Some(cx) = self.current_context.take() {
             // End the span with the current timestamp
             let end_time = std::time::SystemTime::now();
-            cx.span().set_attribute(KeyValue::new("end_time", chrono::Utc::now().to_rfc3339()));
+            cx.span()
+                .set_attribute(KeyValue::new("end_time", chrono::Utc::now().to_rfc3339()));
             cx.span().end_with_timestamp(end_time);
 
             // Small delay to allow the current span to be fully processed

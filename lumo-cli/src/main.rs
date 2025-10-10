@@ -1,6 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use clap::{Parser, ValueEnum};
+
 use futures::StreamExt;
 use lumo::agent::{
     AgentStream, CodeAgent, CodeAgentBuilder, FunctionCallingAgent, FunctionCallingAgentBuilder,
@@ -10,16 +11,18 @@ use lumo::agent::{McpAgent, Step};
 use lumo::errors::AgentError;
 use lumo::models::model_traits::{Model, ModelResponse};
 use lumo::models::ollama::{OllamaModel, OllamaModelBuilder};
-use lumo::models::openai::{OpenAIServerModel, OpenAIServerModelBuilder};
+use lumo::models::openai::{OpenAIServerModel, OpenAIServerModelBuilder, Status};
 use lumo::models::types::Message;
 use lumo::tools::exa_search::ExaSearchTool;
 use lumo::tools::{
     AsyncTool, DuckDuckGoSearchTool, GoogleSearchTool, PythonInterpreterTool, ToolInfo,
-    VisitWebsiteTool,
+    VisitWebsiteTool, TavilySearchTool,
 };
 
 use opentelemetry::trace::{FutureExt, SpanKind, TraceContextExt, Tracer};
 use opentelemetry::{global, Context, KeyValue};
+use tokio::sync::broadcast;
+use std::time::Duration;
 use std::{collections::HashMap, fs::File, io};
 use tokio::process::Command;
 use tracing::Level;
@@ -51,6 +54,7 @@ enum ToolType {
     GoogleSearchTool,
     PythonInterpreter,
     ExaSearchTool,
+    TavilySearchTool,
 }
 
 #[derive(Debug, Clone, ValueEnum)]
@@ -76,11 +80,16 @@ impl<
         M: Model + Send + Sync + std::fmt::Debug + 'static,
     > AgentWrapper<M>
 {
-    fn stream_run<'a>(&'a mut self, task: &'a str, reset: bool) -> StreamResult<'a, Step> {
+    fn stream_run<'a>(
+        &'a mut self,
+        task: &'a str,
+        reset: bool,
+        tx: Option<broadcast::Sender<Status>>,
+    ) -> StreamResult<'a, Step> {
         match self {
-            AgentWrapper::FunctionCalling(agent) => agent.stream_run(task, reset),
-            AgentWrapper::Code(agent) => agent.stream_run(task, reset),
-            AgentWrapper::Mcp(agent) => agent.stream_run(task, reset),
+            AgentWrapper::FunctionCalling(agent) => agent.stream_run(task, reset, tx),
+            AgentWrapper::Code(agent) => agent.stream_run(task, reset, tx),
+            AgentWrapper::Mcp(agent) => agent.stream_run(task, reset, tx),
         }
     }
 }
@@ -102,6 +111,25 @@ impl Model for ModelWrapper {
             ModelWrapper::Ollama(m) => {
                 Ok(m.run(messages, history, tools, max_tokens, args).await?)
             }
+        }
+    }
+
+    async fn run_stream(
+        &self,
+        messages: Vec<Message>,
+        history: Option<Vec<Message>>,
+        tools: Vec<ToolInfo>,
+        max_tokens: Option<usize>,
+        args: Option<HashMap<String, Vec<String>>>,
+        tx: broadcast::Sender<Status>,
+    ) -> Result<Box<dyn ModelResponse>, AgentError> {
+        match self {
+            ModelWrapper::OpenAI(m) => Ok(m
+                .run_stream(messages, history, tools, max_tokens, args, tx)
+                .await?),
+            ModelWrapper::Ollama(m) => Ok(m
+                .run_stream(messages, history, tools, max_tokens, args, tx)
+                .await?),
         }
     }
 }
@@ -157,6 +185,7 @@ fn create_tool(tool_type: &ToolType) -> Box<dyn AsyncTool> {
         ToolType::GoogleSearchTool => Box::new(GoogleSearchTool::new(None)),
         ToolType::PythonInterpreter => Box::new(PythonInterpreterTool::new()),
         ToolType::ExaSearchTool => Box::new(ExaSearchTool::new(3, None)),
+        ToolType::TavilySearchTool => Box::new(TavilySearchTool::new(10, None)),
     }
 }
 
@@ -167,7 +196,7 @@ async fn main() -> Result<()> {
 
     // Initialize tracing subscriber with custom formatting
     let tracer_provider = init_tracer();
-    let (tracer, cx) = if let Some(_) = &tracer_provider {
+    let (tracer, cx) = if tracer_provider.is_some() {
         let tracer = global::tracer("lumo");
         let span = tracer
             .span_builder("conversation")
@@ -355,7 +384,26 @@ The current time is {{current_time}}"#,
             None
         };
 
-        let mut result = agent.stream_run(&task, false)?;
+        // let (tx,mut  rx) = broadcast::channel::<Status>(100); # Use if streaming is needed
+        let mut result = agent.stream_run(&task, false, None)?;
+
+        // # Use if streaming is needed
+        // Spawn a non-blocking task to handle status messages
+        // let status_handle = tokio::spawn(async move {
+        //     while let Ok(status) = rx.recv().await {
+        //         match status {
+          
+        //             Status::Content(content) => {
+        //                 use std::io::Write;
+        //                 print!("{}", content);
+        //                 let _ = std::io::stdout().flush();
+        //             }
+        //             _ => {}
+        //         }
+        //     }
+        // });
+
+        // Process the stream and collect results (CLI prints)
         let mut final_answer = String::new();
         while let Some(step) = if let Some(context) = &cx2 {
             result.next().with_context(context.clone()).await
@@ -363,6 +411,7 @@ The current time is {{current_time}}"#,
             result.next().await
         } {
             if let Ok(step) = step {
+
                 serde_json::to_writer_pretty(&mut file, &step)?;
                 let answer = CliPrinter::print_step(&step)?;
                 final_answer = answer;
@@ -370,6 +419,9 @@ The current time is {{current_time}}"#,
                 println!("Error: {:?}", step);
             }
         }
+
+        // let _ = status_handle.await;
+
         if let Some(context) = &cx2 {
             context
                 .span()
