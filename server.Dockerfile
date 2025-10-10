@@ -3,7 +3,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
-    python3.11-dev
+    python3-dev
 
 
 FROM chef AS planner
