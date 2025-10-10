@@ -15,8 +15,9 @@ use crate::{
 use anyhow::Result;
 use async_trait::async_trait;
 use futures::future::join_all;
-use mcp_client::{McpClient, McpClientTrait, TransportHandle};
-use mcp_core::{Content, Tool};
+use rmcp::{
+    model::{CallToolRequestParam, RawContent, Tool}, service::RunningService, RoleClient
+};
 use opentelemetry::trace::{FutureExt, TraceContextExt};
 use serde_json::json;
 use tracing::instrument;
@@ -38,26 +39,24 @@ fn initialize_system_prompt(system_prompt: String, tools: Vec<Tool>) -> Result<S
     Ok(system_prompt)
 }
 
-pub struct McpAgent<M, S>
+pub struct McpAgent<M>
 where
-    M: Model + Send + Sync + 'static,
-    S: TransportHandle + 'static,
-{
+    M: Model + Send + Sync + 'static{ 
+        
     base_agent: MultiStepAgent<M>,
-    mcp_clients: Vec<McpClient<S>>,
+    mcp_clients: Vec<RunningService<RoleClient, ()>>,
     tools: Vec<Tool>,
     telemetry: AgentTelemetry,  
 }
 
 impl From<Tool> for ToolInfo {
     fn from(tool: Tool) -> Self {
-        let schema =
-            serde_json::from_value::<serde_json::Value>(tool.input_schema).unwrap_or_default();
+        let schema = serde_json::Value::Object((*tool.input_schema).clone());
         ToolInfo {
             tool_type: ToolType::Function,
             function: ToolFunctionInfo {
-                name: tool.name,
-                description: tool.description,
+                name: tool.name.to_string(),
+                description: tool.description.unwrap_or_default().to_string(),
                 parameters: schema,
             },
         }
@@ -66,19 +65,21 @@ impl From<Tool> for ToolInfo {
 
 impl From<ToolInfo> for Tool {
     fn from(tool: ToolInfo) -> Self {
+        let input_schema = match tool.function.parameters {
+            serde_json::Value::Object(map) => std::sync::Arc::new(map),
+            _ => std::sync::Arc::new(serde_json::Map::new()),
+        };
         Tool::new(
             tool.function.name,
             tool.function.description,
-            serde_json::to_value(tool.function.parameters).unwrap(),
-            None,
+            input_schema,
         )
     }
 }
 
-impl<M, S> McpAgent<M, S>
+impl<M> McpAgent<M>
 where
     M: Model + std::fmt::Debug + Send + Sync,
-    S: TransportHandle + 'static,
 {
     #[allow(clippy::too_many_arguments)]
     pub async fn new(
@@ -88,7 +89,7 @@ where
         managed_agents: Vec<Box<dyn Agent>>,
         description: Option<&str>,
         max_steps: Option<usize>,
-        mcp_clients: Vec<McpClient<S>>,
+        mcp_clients: Vec<RunningService<RoleClient, ()>>,
         planning_interval: Option<usize>,
         history: Option<Vec<Message>>,
         logging_level: Option<log::LevelFilter>,
@@ -99,7 +100,7 @@ where
         };
         let mut tools = Vec::new();
         for client in &mcp_clients {
-            tools.extend(client.list_tools(None, None).await?.tools);
+            tools.extend(client.list_tools(None).await?.tools);
         }
         let description = match description {
             Some(desc) => desc.to_string(),
@@ -126,10 +127,9 @@ where
     }
 }
 
-pub struct McpAgentBuilder<'a, M, S>
+pub struct McpAgentBuilder<'a, M>
 where
     M: Model + std::fmt::Debug + Send + Sync,
-    S: TransportHandle + 'static,
 {
     name: Option<&'a str>,
     model: M,
@@ -139,14 +139,13 @@ where
     max_steps: Option<usize>,
     planning_interval: Option<usize>,
     history: Option<Vec<Message>>,
-    mcp_clients: Vec<McpClient<S>>,
+    mcp_clients: Vec<RunningService<RoleClient, ()>>,
     logging_level: Option<log::LevelFilter>,
 }
 
-impl<'a, M, S> McpAgentBuilder<'a, M, S>
+impl<'a, M> McpAgentBuilder<'a, M>
 where
     M: Model + std::fmt::Debug + Send + Sync,
-    S: TransportHandle + 'static,
 {
     pub fn new(model: M) -> Self {
         Self {
@@ -190,7 +189,7 @@ where
         self.history = history;
         self
     }
-    pub fn with_mcp_clients(mut self, mcp_clients: Vec<McpClient<S>>) -> Self {
+    pub fn with_mcp_clients(mut self, mcp_clients: Vec<RunningService<RoleClient, ()>>) -> Self {
         self.mcp_clients = mcp_clients;
         self
     }
@@ -198,7 +197,7 @@ where
         self.logging_level = logging_level;
         self
     }
-    pub async fn build(self) -> Result<McpAgent<M, S>> {
+    pub async fn build(self) -> Result<McpAgent<M>> {
         McpAgent::new(
             self.name,
             self.model,
@@ -216,10 +215,9 @@ where
 }
 
 #[async_trait]
-impl<M, S> Agent for McpAgent<M, S>
+impl<M> Agent for McpAgent<M>
 where
     M: Model + std::fmt::Debug + Send + Sync,
-    S: TransportHandle + 'static,
 {
     fn name(&self) -> &'static str {
         self.base_agent.name()
@@ -424,7 +422,7 @@ where
                                 {
                                     for client in &self.mcp_clients {
                                         if client
-                                            .list_tools(None, None)
+                                            .list_tools(None)
                                             .await
                                             .map_err(|e| AgentError::Execution(e.to_string()))?
                                             .tools
@@ -432,9 +430,10 @@ where
                                             .any(|t| t.name == tool.function.name)
                                         {
                                             futures.push(client.call_tool(
-                                                &tool.function.name,
-                                                tool.function.arguments.clone(),
-                                                None,
+                                                CallToolRequestParam {
+                                                    name: tool.function.name.clone().into(),
+                                                    arguments: tool.function.arguments.as_object().cloned(),
+                                                },
                                             ));
                                         }
                                     }
@@ -474,8 +473,8 @@ where
                                         let text = observation
                                             .content
                                             .iter()
-                                            .map(|content| match content {
-                                                Content::Text(text) => text.text.clone(),
+                                            .map(|content| match &content.raw {
+                                                RawContent::Text(text) => text.text.clone(),
                                                 _ => "".to_string(),
                                             })
                                             .collect::<Vec<_>>()
@@ -544,9 +543,8 @@ where
 }
 
 #[cfg(feature = "stream")]
-impl<M, S> AgentStream for McpAgent<M, S>
+impl<M> AgentStream for McpAgent<M>
 where
     M: Model + std::fmt::Debug + Send + Sync,
-    S: TransportHandle + 'static,
 {
 }

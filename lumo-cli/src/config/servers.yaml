@@ -7,7 +7,7 @@ filesystem:
   command: npx
   args:
     - "@modelcontextprotocol/server-filesystem"
-    - "path/to/directory"
+    - "D:/Projects/Rust"
   env: null
 
 

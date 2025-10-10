@@ -29,8 +29,7 @@ tracing = {workspace = true}
 
 
 # mcp
-mcp-client = {git = "https://github.com/block/goose.git", optional = true}
-mcp-core = {git = "https://github.com/block/goose.git", optional = true}
+rmcp = {workspace = true, optional = true}
 tower = { version = "0.4", features = ["timeout", "util"], optional = true}
 tokio = {workspace = true, features = ["rt-multi-thread", "macros"], optional=true}
 async-stream = {workspace =true, optional = true}
@@ -46,7 +45,7 @@ tokio = {workspace = true, features = ["rt-multi-thread", "macros", "full"]}
 [features]
 default = []
 cli = ["dep:clap"]
-mcp = ["dep:mcp-client", "dep:mcp-core", "dep:tower" ]
+mcp = ["dep:rmcp", "dep:tower" ]
 code-agent = ["dep:rustpython-parser", "dep:pyo3", "dep:tokio"]
 stream = ["dep:async-stream"]
 all = ["cli", "code-agent", "mcp", "stream"]

@@ -15,8 +15,7 @@ path = "src/main.rs"
 clap.workspace = true
 anyhow.workspace = true
 lumo = {workspace = true, features = ["all"]}
-mcp-core.workspace = true
-mcp-client.workspace = true
+rmcp.workspace = true
 async-trait.workspace = true
 tower.workspace = true
 colored.workspace = true

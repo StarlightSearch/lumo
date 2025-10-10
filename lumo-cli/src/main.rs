@@ -17,12 +17,11 @@ use lumo::tools::{
     AsyncTool, DuckDuckGoSearchTool, GoogleSearchTool, PythonInterpreterTool, ToolInfo,
     VisitWebsiteTool,
 };
-use mcp_client::{
-    ClientCapabilities, ClientInfo, McpClient, McpClientTrait, McpService, StdioTransport, Transport, TransportHandle
-};
+
 use opentelemetry::trace::{FutureExt, SpanKind, TraceContextExt, Tracer};
 use opentelemetry::{global, Context, KeyValue};
-use std::{collections::HashMap, fs::File, io, time::Duration};
+use std::{collections::HashMap, fs::File, io};
+use tokio::process::Command;
 use tracing::Level;
 use tracing_subscriber::{fmt, EnvFilter};
 mod config;
@@ -32,6 +31,10 @@ use cli_utils::{CliPrinter, ToolCallsFormatter};
 mod splash;
 use splash::SplashScreen;
 mod telemetry;
+use rmcp::{
+    transport::{ConfigureCommandExt, TokioChildProcess},
+    ServiceExt,
+};
 use telemetry::init_tracer;
 
 #[derive(Debug, Clone, ValueEnum)]
@@ -63,20 +66,15 @@ enum ModelWrapper {
     Ollama(OllamaModel),
 }
 
-enum AgentWrapper<
-    M: Model + Send + Sync + std::fmt::Debug + 'static,
-    S: TransportHandle + Clone + Send + Sync + 'static,
-> 
-{
+enum AgentWrapper<M: Model + Send + Sync + std::fmt::Debug + 'static> {
     FunctionCalling(FunctionCallingAgent<M>),
     Code(CodeAgent<M>),
-    Mcp(McpAgent<M, S>),
+    Mcp(McpAgent<M>),
 }
 
 impl<
         M: Model + Send + Sync + std::fmt::Debug + 'static,
-        S: TransportHandle + Clone + Send + Sync + 'static,
-    > AgentWrapper<M, S>
+    > AgentWrapper<M>
 {
     fn stream_run<'a>(&'a mut self, task: &'a str, reset: bool) -> StreamResult<'a, Step> {
         match self {
@@ -120,7 +118,7 @@ struct Args {
     tools: Vec<ToolType>,
 
     /// The type of model to use
-    #[arg(short = 'm', long, value_enum, default_value = "gemini")]
+    #[arg(short = 'm', long, value_enum, default_value = "open-ai")]
     model_type: ModelType,
 
     /// OpenAI API key (only required for OpenAI model)
@@ -128,7 +126,7 @@ struct Args {
     api_key: Option<String>,
 
     /// Model ID (e.g., "gpt-4" for OpenAI or "qwen2.5" for Ollama)
-    #[arg(long, default_value = "gemini-2.0-flash")]
+    #[arg(long, default_value = "gpt-4.1-mini")]
     model_id: String,
 
     /// Base URL for the API
@@ -293,27 +291,14 @@ The current time is {{current_time}}"#,
             let mut clients = Vec::new();
             let servers = Servers::load()?;
             // Iterate through all server configurations
-            for (server_name, server_config) in servers.servers.iter() {
+            for (_, server_config) in servers.servers.iter() {
                 // Create transport for this server
-                let transport = StdioTransport::new(
-                    &server_config.command,
-                    server_config.args.clone(),
-                    server_config.env.clone().unwrap_or_default(),
-                );
-
-                // Start the transport
-                let transport_handle = transport.start().await?;
-                let mut client = McpClient::connect(transport_handle, Duration::from_secs(30)).await?;
-
-                // Initialize the client with a unique name
-                let _ = client
-                    .initialize(
-                        ClientInfo {
-                            name: format!("{}-client", server_name),
-                            version: "1.0.0".into(),
-                        },
-                        ClientCapabilities::default(),
-                    )
+                let client = ()
+                    .serve(TokioChildProcess::new(
+                        Command::new(&server_config.command).configure(|cmd| {
+                            cmd.args(&server_config.args);
+                        }),
+                    )?)
                     .await?;
 
                 clients.push(client);
@@ -386,7 +371,9 @@ The current time is {{current_time}}"#,
             }
         }
         if let Some(context) = &cx2 {
-            context.span().set_attribute(KeyValue::new("output.value", final_answer));
+            context
+                .span()
+                .set_attribute(KeyValue::new("output.value", final_answer));
             context.span().end();
         }
         task_count += 1;
