@@ -1,4 +1,4 @@
-FROM lukemathwalker/cargo-chef:0.1.72-rust-1.90.0-slim-bullseye AS chef
+FROM lukemathwalker/cargo-chef:0.1.72-rust-1.90.0-slim-bookworm AS chef
 WORKDIR /app    
 RUN apt-get update && apt-get install -y \
     pkg-config \
