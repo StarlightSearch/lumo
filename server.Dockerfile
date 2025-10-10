@@ -3,7 +3,7 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
-    python3
+    python3 \
     python3-dev
 
 
