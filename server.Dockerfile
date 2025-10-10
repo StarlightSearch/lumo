@@ -1,9 +1,9 @@
-FROM lukemathwalker/cargo-chef:latest AS chef
+FROM lukemathwalker/cargo-chef:0.1.72 AS chef
 WORKDIR /app
 RUN apt-get update && apt-get install -y \
     pkg-config \
     libssl-dev \
-    python3-dev
+    python3.11-dev
 
 
 FROM chef AS planner
@@ -29,7 +29,7 @@ RUN apt-get update && apt-get install -y \
     ca-certificates \
     openssl \
     libcurl4-openssl-dev \
-    python3-dev
+    python3.11-dev
 
 COPY --from=builder /app/target/release/lumo-server /usr/local/bin
 COPY --from=builder /app/lumo-server/src/config/servers.yaml /usr/local/bin/src/config/servers.yaml
