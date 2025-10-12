@@ -22,7 +22,6 @@ use lumo::tools::{
 use opentelemetry::trace::{FutureExt, SpanKind, TraceContextExt, Tracer};
 use opentelemetry::{global, Context, KeyValue};
 use tokio::sync::broadcast;
-use std::time::Duration;
 use std::{collections::HashMap, fs::File, io};
 use tokio::process::Command;
 use tracing::Level;
