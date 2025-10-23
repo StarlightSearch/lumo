@@ -6,7 +6,7 @@ use base64::{self, Engine};
 use std::pin::Pin;
 use config::Servers;
 use lumo::{
-    agent::{Agent, FunctionCallingAgentBuilder, AgentStream},
+    agent::{Agent, AgentStream, FunctionCallingAgentBuilder, Step},
     models::{openai::{OpenAIServerModelBuilder, Status}, types::Message},
     tools::{
         exa_search::ExaSearchTool, AsyncTool, DuckDuckGoSearchTool, GoogleSearchTool,
@@ -596,10 +596,25 @@ where
                     match step_result {
                         Some(Ok(step)) => {
                             // Send the step event
-                            let step_value = serde_json::to_value(&step).unwrap_or_default();
-                            let event = StreamEvent::Step { step: step_value };
-                            if let Ok(json) = serde_json::to_string(&event) {
-                                yield Ok(Bytes::from(format!("data: {}\n\n", json)));
+                            match step {
+                                 Step::ActionStep(agent_step) => {
+                                     if let Some(tool_calls) = &agent_step.tool_call {
+                                         let step_data = serde_json::json!({
+                                             "step": agent_step.step,
+                                             "tool_calls": tool_calls.iter().map(|tc| {
+                                                 serde_json::json!({
+                                                     "name": &tc.function.name,
+                                                     "arguments": &tc.function.arguments
+                                                 })
+                                             }).collect::<Vec<_>>()
+                                         });
+                                         let event = StreamEvent::Step { step: step_data };
+                                         if let Ok(json) = serde_json::to_string(&event) {
+                                             yield Ok(Bytes::from(format!("data: {}\n\n", json)));
+                                         }
+                                     }
+                                 }  
+                                _ => {}
                             }
                         }
                         Some(Err(e)) => {
