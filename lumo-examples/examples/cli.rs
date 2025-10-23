@@ -3,14 +3,15 @@ use std::collections::HashMap;
 use anyhow::Result;
 use async_trait::async_trait;
 use clap::{Parser, ValueEnum};
-use lumo::agent::{Agent, CodeAgent, FunctionCallingAgent};
+use futures::StreamExt;
+use lumo::agent::{AgentStream, CodeAgent, FunctionCallingAgent, StreamResult};
 use lumo::agent::{CodeAgentBuilder, FunctionCallingAgentBuilder, Step};
 use lumo::errors::AgentError;
 use lumo::models::gemini::{GeminiServerModel, GeminiServerModelBuilder};
 use lumo::models::model_traits::{Model, ModelResponse};
 use lumo::models::ollama::{OllamaModel, OllamaModelBuilder};
 use lumo::models::openai::{
-    OpenAIServerModel, OpenAIServerModelBuilder, OpenAIStreamResponse, Status,
+    OpenAIServerModel, OpenAIServerModelBuilder, Status,
 };
 use lumo::models::types::Message;
 use lumo::tools::{
@@ -19,7 +20,6 @@ use lumo::tools::{
 use serde_json;
 use std::fs::File;
 use tokio::sync::broadcast;
-use tokio::sync::mpsc::Receiver;
 
 #[derive(Debug, Clone, ValueEnum)]
 enum AgentType {
@@ -57,16 +57,15 @@ enum AgentWrapper {
 }
 
 impl AgentWrapper {
-    async fn run(&mut self, task: &str, reset: bool) -> Result<String, AgentError> {
+    fn stream_run<'a>(
+        &'a mut self,
+        task: &'a str,
+        reset: bool,
+        tx: Option<broadcast::Sender<Status>>,
+    ) -> StreamResult<'a, Step> {
         match self {
-            AgentWrapper::FunctionCalling(agent) => agent.run(task, reset).await,
-            AgentWrapper::Code(agent) => agent.run(task, reset).await,
-        }
-    }
-    fn get_logs_mut(&mut self) -> &mut Vec<Step> {
-        match self {
-            AgentWrapper::FunctionCalling(agent) => agent.get_logs_mut(),
-            AgentWrapper::Code(agent) => agent.get_logs_mut(),
+            AgentWrapper::FunctionCalling(agent) => agent.stream_run(task, reset, tx),
+            AgentWrapper::Code(agent) => agent.stream_run(task, reset, tx),
         }
     }
 }
@@ -93,7 +92,6 @@ impl Model for ModelWrapper {
             }
         }
     }
-    #[allow(unused_variables)]
     async fn run_stream(
         &self,
         messages: Vec<Message>,
@@ -103,7 +101,17 @@ impl Model for ModelWrapper {
         args: Option<HashMap<String, Vec<String>>>,
         tx: broadcast::Sender<Status>,
     ) -> Result<Box<dyn ModelResponse>, AgentError> {
-        unimplemented!()
+        match self {
+            ModelWrapper::OpenAI(m) => Ok(m
+                .run_stream(messages, history, tools, max_tokens, args, tx)
+                .await?),
+            ModelWrapper::Ollama(m) => Ok(m
+                .run_stream(messages, history, tools, max_tokens, args, tx)
+                .await?),
+            ModelWrapper::Gemini(m) => Ok(m
+                .run_stream(messages, history, tools, max_tokens, args, tx)
+                .await?),
+        }
     }
 }
 
@@ -119,7 +127,7 @@ struct Args {
     tools: Vec<ToolType>,
 
     /// The type of model to use
-    #[arg(short = 'm', long, value_enum, default_value = "gemini")]
+    #[arg(short = 'm', long, value_enum, default_value = "open-ai")]
     model_type: ModelType,
 
     /// OpenAI API key (only required for OpenAI model)
@@ -127,7 +135,7 @@ struct Args {
     api_key: Option<String>,
 
     /// Model ID (e.g., "gpt-4" for OpenAI or "qwen2.5" for Ollama)
-    #[arg(long, default_value = "gemini-2.0-flash")]
+    #[arg(long, default_value = "gpt-4.1-mini")]
     model_id: String,
 
     /// Whether to reset the agent
@@ -145,6 +153,10 @@ struct Args {
     /// Maximum number of steps to take
     #[arg(long, default_value = "10")]
     max_steps: Option<usize>,
+
+    /// Enable streaming mode to see content as it's generated
+    #[arg(short, long, default_value = "false")]
+    stream: bool,
 }
 
 fn create_tool(tool_type: &ToolType) -> Box<dyn AsyncTool> {
@@ -206,18 +218,91 @@ async fn main() -> Result<()> {
         ),
     };
 
-    // Run the agent with the task from stdin
-    let _result = agent.run(&args.task, args.reset).await?;
-    let logs = agent.get_logs_mut();
-
-    // store logs in a file
+    // Store logs in a file
     let mut file = File::create("logs.txt")?;
 
-    // Get the last log entry and serialize it in a controlled way
-    for log in logs {
-        // Serialize to JSON with pretty printing
-        serde_json::to_writer_pretty(&mut file, &log)?;
+    // Setup streaming channel if needed
+    let tx = if args.stream {
+        let (tx, mut rx) = broadcast::channel::<Status>(100);
+        
+        // Spawn a non-blocking task to handle streaming status messages
+        tokio::spawn(async move {
+            while let Ok(status) = rx.recv().await {
+                match status {
+                    Status::Content(content) => {
+                        use std::io::Write;
+                        print!("{}", content);
+                        let _ = std::io::stdout().flush();
+                    }
+                    _ => {}
+                }
+            }
+        });
+        
+        Some(tx)
+    } else {
+        None
+    };
+
+    // Run the agent with streaming
+    let mut result = agent.stream_run(&args.task, args.reset, tx)?;
+
+    // Process the stream and collect results
+    while let Some(step) = result.next().await {
+        if let Ok(step) = step {
+            // Write to log file
+            serde_json::to_writer_pretty(&mut file, &step)?;
+            
+            // Print step information to console
+            match &step {
+                Step::ActionStep(agent_step) => {
+                    if let Some(tool_calls) = &agent_step.tool_call {
+                        for tool_call in tool_calls {
+                            println!("\n🔧 Tool: {} | Arguments: {}", tool_call.function.name, tool_call.function.arguments);
+                        }
+                        // Add spacing after tool calls in streaming mode
+                        if args.stream {
+                            println!();
+                        }
+                    }
+                    if let Some(answer) = &agent_step.final_answer {
+                        // For streaming mode, content is already being printed
+                        // For non-streaming mode, print the final answer here
+                        if !args.stream {
+                            println!("\n=== Final Answer ===");
+                            println!("{}", answer);
+                        } else {
+                            println!("\n"); // Add newline after streamed content
+                        }
+                    }
+                }
+                Step::ToolCall(tool_call) => {
+                    println!("\n🔧 Tool: {} | Arguments: {}", tool_call.function.name, tool_call.function.arguments);
+                    // Add spacing after tool calls in streaming mode
+                    if args.stream {
+                        println!();
+                    }
+                }
+                Step::PlanningStep(plan, facts) => {
+                    println!("\n📋 Planning Step");
+                    println!("Plan: {}", plan);
+                    println!("Facts: {}", facts);
+                }
+                Step::TaskStep(task) => {
+                    println!("\n📝 Task: {}", task);
+                }
+                _ => {}
+            }
+        } else {
+            eprintln!("Error: {:?}", step);
+        }
+    }
+
+    if !args.stream {
+        println!("\n=== Task Completed ===");
+        println!("Logs saved to logs.txt");
     }
 
     Ok(())
 }
+
