@@ -40,4 +40,3 @@ tracing-opentelemetry.workspace = true
 
 ctrlc = "3.4"
 dotenv = "0.15.0"
-crossterm = { version = "0.27", features = ["use-dev-tty"] }    

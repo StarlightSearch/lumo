@@ -694,25 +694,6 @@ pub async fn process_stream_with_separate_tasks(
                 }
             }
 
-            // Broadcast tool call information
-            // if let Some(tool_calls_delta) = &res.choices[0].delta.tool_calls {
-            //     for tool_call_delta in tool_calls_delta {
-            //         if let Some(id) = &tool_call_delta.id {
-            //             if let Err(e) = tx_clone.send(format!("Tool call started: {}", tool_call_delta.function.name.clone().unwrap_or_default())) {
-            //                 eprintln!("Failed to broadcast tool call start: {}", e);
-            //             }
-            //         }
-
-            //         // Broadcast tool call content
-            //         let content_str = match &tool_call_delta.function.arguments {
-            //             Value::String(s) => s.clone(),
-            //             _ => serde_json::to_string(&tool_call_delta.function.arguments).unwrap_or_default(),
-            //         };
-            //         if let Err(e) = tx_clone.send(content_str.clone()) {
-            //             eprintln!("Failed to broadcast tool call content: {}", e);
-            //         }
-            //     }
-            // }
         }
 
         // Close the accumulation channel

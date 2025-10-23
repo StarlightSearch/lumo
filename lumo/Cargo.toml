@@ -28,7 +28,6 @@ nanoid.workspace = true
 tracing = {workspace = true}
 reqwest-eventsource = {workspace = true}
 
-
 # mcp
 rmcp = {workspace = true, optional = true}
 tower = { version = "0.4", features = ["timeout", "util"], optional = true}
